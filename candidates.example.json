@@ -1,0 +1,34 @@
+{
+  "slots": {
+    "head": [
+      {
+        "label": "Mythic Helm",
+        "simc": "id=228811,bonus_id=10352/1511"
+      },
+      {
+        "label": "Heroic Helm",
+        "simc": "id=228811,bonus_id=10294/1498"
+      }
+    ],
+    "trinket1": [
+      {
+        "label": "Raid Trinket A",
+        "simc": "id=230003,bonus_id=10352/1511"
+      },
+      {
+        "label": "Raid Trinket B",
+        "simc": "id=230041,bonus_id=10352/1511"
+      }
+    ],
+    "trinket2": [
+      {
+        "label": "Raid Trinket A",
+        "simc": "id=230003,bonus_id=10352/1511"
+      },
+      {
+        "label": "Raid Trinket B",
+        "simc": "id=230041,bonus_id=10352/1511"
+      }
+    ]
+  }
+}

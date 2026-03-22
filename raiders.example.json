@@ -1,0 +1,13 @@
+{
+  "raiders": [
+    {
+      "name": "Beastndesist",
+      "armory_url": "https://worldofwarcraft.blizzard.com/en-us/character/us/malganis/beastndesist/"
+    },
+    {
+      "name": "PriestAlt",
+      "profile_path": "C:/Projects/WoWSim/input/priest_alt.simc",
+      "candidates_path": "C:/Projects/WoWSim/candidates-priest.json"
+    }
+  ]
+}

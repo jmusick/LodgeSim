@@ -1,0 +1,18 @@
+# Local secrets
+.env.simrunner.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# SimC binary / downloads (large binaries, not source)
+tools/
+
+# Sim outputs (generated, not committed)
+results/
+
+# Input files with personal character data (committed selectively)
+# input/ is tracked — add specific exclusions below if needed
+

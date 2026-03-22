@@ -1,0 +1,18 @@
+{
+  "simc_path": "C:/Projects/WoWSim/tools/simc/nightly/current/simc.exe",
+  "base_profile_path": "C:/Projects/WoWSim/input/character.simc",
+  "candidates_path": "C:/Projects/WoWSim/candidates.beastndesist.voidspire-hc-mythic.json",
+  "raiders_path": null,
+  "armory_url": "https://worldofwarcraft.blizzard.com/en-us/character/us/malganis/beastndesist/",
+  "output_dir": "C:/Projects/WoWSim/results/beastndesist-voidspire-hc-mythic",
+  "mode": "single_upgrades",
+  "iterations": 15000,
+  "threads": 8,
+  "fight_style": "Patchwerk",
+  "additional_options": [
+    "desired_targets=1",
+    "max_time=300",
+    "vary_combat_length=0.2"
+  ],
+  "max_scenarios": 500
+}

@@ -1,0 +1,18 @@
+{
+  "simc_path": "C:/Projects/WoWSim/tools/simc/nightly/current/simc.exe",
+  "base_profile_path": "C:/Projects/WoWSim/input/character.simc",
+  "candidates_path": "C:/Projects/WoWSim/candidates.example.json",
+  "raiders_path": null,
+  "armory_url": null,
+  "output_dir": "C:/Projects/WoWSim/results",
+  "mode": "single_upgrades",
+  "iterations": 15000,
+  "threads": 8,
+  "fight_style": "Patchwerk",
+  "additional_options": [
+    "desired_targets=1",
+    "max_time=300",
+    "vary_combat_length=0.2"
+  ],
+  "max_scenarios": 300
+}

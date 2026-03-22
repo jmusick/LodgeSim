@@ -1,0 +1,46 @@
+{
+  "slots": {
+    "chest": [
+      {
+        "label": "Primal Sentry's Scaleplate 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249991,bonus_id=4800/4786/12802"
+      }
+    ],
+    "waist": [
+      {
+        "label": "Scornbane Waistguard 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249371,bonus_id=4800/4786/12802"
+      },
+      {
+        "label": "Primal Sentry's Cinch 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249985,bonus_id=4800/4786/12802"
+      }
+    ],
+    "trinket1": [
+      {
+        "label": "Gaze of the Alnseer 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,bonus_id=4800/4786/12802"
+      },
+      {
+        "label": "Undreamt God's Oozing Vestige 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249805,bonus_id=4800/4786/12802"
+      }
+    ],
+    "trinket2": [
+      {
+        "label": "Gaze of the Alnseer 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,bonus_id=4800/4786/12802"
+      },
+      {
+        "label": "Undreamt God's Oozing Vestige 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249805,bonus_id=4800/4786/12802"
+      }
+    ],
+    "main_hand": [
+      {
+        "label": "Alnscorned Spire 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249278,bonus_id=4800/4786/12802"
+      }
+    ]
+  }
+}
