@@ -23,7 +23,17 @@ WEBAPP_SCRIPT = APP_ROOT / "webapp.py"
 
 def _find_wowsim_root() -> pathlib.Path:
     """Find the WoWSim root directory, searching in multiple locations."""
-    locations = [
+    locations: list[pathlib.Path] = []
+
+    # In frozen mode (__file__ points to a temp extraction dir), prefer the
+    # directory containing the EXE that the user launched.
+    if getattr(sys, "frozen", False):
+        try:
+            locations.append(pathlib.Path(sys.executable).resolve().parent)
+        except Exception:
+            pass
+
+    locations.extend([
         # Current APP_ROOT (when running as script)
         APP_ROOT,
         # Parent directories (in case running from a subdirectory)
@@ -32,11 +42,17 @@ def _find_wowsim_root() -> pathlib.Path:
         # Common dev locations
         pathlib.Path.cwd(),
         pathlib.Path.cwd().parent,
-    ]
+    ])
 
     for loc in locations:
         # Check for marker files that indicate this is the WoWSim root
-        if (loc / ".env.simrunner.local.example").exists() or (loc / "webapp.py").exists():
+        if (
+            (loc / ".env.simrunner.local").exists()
+            or (loc / ".env.simrunner.local.example").exists()
+            or (loc / "webapp.py").exists()
+            or (loc / "config.guild.json").exists()
+            or (loc / "update-simc.ps1").exists()
+        ):
             return loc
 
     # Fallback to APP_ROOT
