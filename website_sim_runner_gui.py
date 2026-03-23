@@ -82,6 +82,19 @@ WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
 SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
+def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        # WinError 10061 here is commonly caused by a dead local proxy.
+        if getattr(reason, "winerror", None) != 10061:
+            raise
+
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(req, timeout=timeout)
+
+
 def _windows_subprocess_kwargs() -> dict[str, object]:
     if os.name != "nt":
         return {}
@@ -679,7 +692,7 @@ class RunnerGui(tk.Tk):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _open_url_with_proxy_fallback(req, timeout=10) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 _ = json.loads(raw) if raw.strip() else {}
                 return "connected", "ok"

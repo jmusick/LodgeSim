@@ -303,6 +303,19 @@ def _has_active_task_locked(task_id: str) -> bool:
     return False
 
 
+def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        # WinError 10061 here is commonly caused by a dead local proxy.
+        if getattr(reason, "winerror", None) != 10061:
+            raise
+
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(req, timeout=timeout)
+
+
 def _fetch_passive_tasks(max_tasks: int, stale_secs: int) -> list[dict[str, Any]]:
     global _passive_endpoint_404_backoff_until
 
@@ -331,7 +344,7 @@ def _fetch_passive_tasks(max_tasks: int, stale_secs: int) -> list[dict[str, Any]
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with _open_url_with_proxy_fallback(req, timeout=20) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             payload = json.loads(raw) if raw.strip() else {}
             tasks = payload.get("tasks", []) if isinstance(payload, dict) else []
@@ -365,7 +378,7 @@ def _fetch_passive_tasks_from_targets(base_url: str, runner_key: str, max_tasks:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with _open_url_with_proxy_fallback(req, timeout=20) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             payload = json.loads(raw) if raw.strip() else {}
     except Exception as exc:

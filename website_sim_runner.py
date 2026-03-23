@@ -92,6 +92,19 @@ def _enable_line_buffering() -> None:
     SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
+    def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", None)
+            # WinError 10061 here is commonly caused by a dead local proxy.
+            if getattr(reason, "winerror", None) != 10061:
+                raise
+
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            return opener.open(req, timeout=timeout)
+
+
 def _request_json(
     method: str,
     url: str,
@@ -111,7 +124,7 @@ def _request_json(
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open_url_with_proxy_fallback(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             if not raw.strip():
                 return {}
