@@ -227,6 +227,12 @@ For a simple desktop client, run:
 python .\website_sim_runner_gui.py
 ```
 
+Or launch the pre-built EXE directly:
+
+```
+dist\WoWSim Website Runner Patched.exe
+```
+
 To avoid retyping env vars every session, use the launcher script:
 
 1. Copy `.env.simrunner.local.example` to `.env.simrunner.local` and fill values.
@@ -239,9 +245,13 @@ To avoid retyping env vars every session, use the launcher script:
 The UI provides:
 
 - Dev/Prod selection
-- Start button
+- Start button (gated while SimC auto-update is in progress)
 - API connection status
 - Live console output
+- SimC Auto-Update status indicator with dot state (checking / ok / error)
+- **Check Now** button to manually re-trigger the SimC nightly update at any time
+
+On launch the GUI automatically runs `update-simc.ps1` in the background to keep SimulationCraft up to date. The Start button stays disabled until the update completes. Set `WOWSIM_AUTO_UPDATE_SIMC_ON_LAUNCH=0` to disable this behaviour.
 
 ## Web App UI
 
@@ -290,7 +300,7 @@ This fetches Raidbots static data from the live manifest and builds a candidates
 Current caveats of the live-data generator:
 
 - It generates candidates using `id=...,ilevel=...` rather than Raidbots-export bonus strings.
-- Tier set pieces are included, but Raidbots static data currently surfaces them as Catalyst-sourced items rather than their original raid token boss sources.
+- Tier set pieces are included, and WoWSim applies a local override so current-season catalyst-backed tier pieces retain their original raid token boss sources.
 - Since the live data does not provide per-item enchant/gem decisions, the generated candidates are intentionally less opinionated.
 
 ## Getting a Profile for a Spec You Do Not Play

@@ -9,6 +9,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -18,6 +19,28 @@ from flask import Flask, jsonify, request, send_file
 
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent
+
+
+def _find_wowsim_root() -> pathlib.Path:
+    """Find the WoWSim root directory, searching in multiple locations."""
+    locations = [
+        # Current APP_ROOT (when running as script)
+        APP_ROOT,
+        # Parent directories (in case running from a subdirectory)
+        APP_ROOT.parent,
+        APP_ROOT.parent.parent,
+        # Common dev locations
+        pathlib.Path.cwd(),
+        pathlib.Path.cwd().parent,
+    ]
+
+    for loc in locations:
+        # Check for marker files that indicate this is the WoWSim root
+        if (loc / ".env.simrunner.local.example").exists() or (loc / "webapp.py").exists():
+            return loc
+
+    # Fallback to APP_ROOT
+    return APP_ROOT
 
 
 def _load_dotenv(path: pathlib.Path) -> None:
@@ -33,7 +56,12 @@ def _load_dotenv(path: pathlib.Path) -> None:
         pass
 
 
-_load_dotenv(APP_ROOT / ".env.simrunner.local")
+# Load .env from multiple possible locations
+WOWSIM_ROOT = _find_wowsim_root()
+_load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
+
+# Also try current working directory (for when running as standalone exe)
+_load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
 
 
 def _site_base_url() -> str:
@@ -96,6 +124,7 @@ class JobState:
     log_lines: list[str] = field(default_factory=list)
     report_csv: str = ""
     report_md: str = ""
+    addon_profile_path: str | None = None
 
 
 jobs: dict[str, JobState] = {}
@@ -103,18 +132,40 @@ job_processes: dict[str, subprocess.Popen[str]] = {}
 job_lock = threading.Lock()
 
 
-RAIDER_START_RE = re.compile(r"^\[(\d+)/(\d+)\] Importing \+ simming (.+)$")
+RAIDER_START_RE = re.compile(
+    r"^(?:\[team\s+\d+\]\s+)?\[(\d+)/(\d+)\]\s+(?:Importing\s*\+\s*simming|Simming)\s+(.+)$",
+    re.IGNORECASE,
+)
 SCENARIO_RE = re.compile(r"^\[(.+?)\] \[(\d+)/(\d+)\]")
 REPORT_CSV_RE = re.compile(r"^CSV:\s+(.+)$")
 REPORT_MD_RE = re.compile(r"^Markdown:\s+(.+)$")
 PROGRESS_RE = re.compile(r"^@@PROGRESS@@\s+pct=(\d+)\s+stage=(.*?)\s+detail=(.*)$")
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 JOB_TIMEOUT_SECS = 6 * 60 * 60
 
 
 def list_config_files() -> list[str]:
-    files = sorted(APP_ROOT.glob("config*.json"))
+    files = sorted(WOWSIM_ROOT.glob("config*.json"))
     return [p.name for p in files if p.is_file()]
+
+
+def _build_runner_command(*args: str) -> list[str]:
+    runner_script = WOWSIM_ROOT / "website_sim_runner.py"
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--run-website-sim", *args]
+    return [sys.executable, str(runner_script), *args]
+
+
+def _windows_subprocess_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+
+    kwargs: dict[str, Any] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    kwargs["startupinfo"] = startupinfo
+    return kwargs
 
 
 def default_config_name() -> str:
@@ -173,7 +224,7 @@ def _run_job(job_id: str) -> None:
 
     proc = subprocess.Popen(
         job.command,
-        cwd=str(APP_ROOT),
+        cwd=str(WOWSIM_ROOT),
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -181,6 +232,7 @@ def _run_job(job_id: str) -> None:
         encoding="utf-8",
         errors="replace",
         bufsize=1,
+        **_windows_subprocess_kwargs(),
     )
     with job_lock:
         job_processes[job_id] = proc
@@ -206,18 +258,27 @@ def _run_job(job_id: str) -> None:
     assert proc.stdout is not None
     for raw in proc.stdout:
         line = raw.rstrip("\r\n")
+        line_clean = ANSI_ESCAPE_RE.sub("", line).strip()
         with job_lock:
             cur = jobs[job_id]
             _append_log(cur, line)
 
-            m = RAIDER_START_RE.search(line)
+            m = RAIDER_START_RE.search(line_clean)
             if m:
                 cur.progress_current = int(m.group(1))
                 cur.progress_total = int(m.group(2))
                 cur.progress_label = f"Raider {m.group(1)}/{m.group(2)}: {m.group(3)}"
+                if cur.progress_total > 0:
+                    # Keep a visible moving bar even before scenario-level @@PROGRESS@@ events.
+                    cur.progress_pct = max(
+                        cur.progress_pct,
+                        int((cur.progress_current / cur.progress_total) * 100),
+                    )
                 continue
 
-            p = PROGRESS_RE.search(line)
+            p = PROGRESS_RE.search(line_clean)
+            if not p and "@@PROGRESS@@" in line_clean:
+                p = re.search(r"@@PROGRESS@@\s+pct=(\d+)\s+stage=(.*?)\s+detail=(.*)$", line_clean)
             if p:
                 cur.progress_pct = int(p.group(1))
                 cur.progress_stage = p.group(2).strip()
@@ -225,18 +286,18 @@ def _run_job(job_id: str) -> None:
                 cur.progress_label = f"{cur.progress_stage}: {cur.progress_detail}".strip(": ")
                 continue
 
-            s = SCENARIO_RE.search(line)
+            s = SCENARIO_RE.search(line_clean)
             if s:
                 cur.progress_label = (
                     f"{s.group(1)} scenario {s.group(2)}/{s.group(3)}"
                 )
 
-            r_csv = REPORT_CSV_RE.search(line)
+            r_csv = REPORT_CSV_RE.search(line_clean)
             if r_csv:
                 cur.report_csv = r_csv.group(1).strip()
                 continue
 
-            r_md = REPORT_MD_RE.search(line)
+            r_md = REPORT_MD_RE.search(line_clean)
             if r_md:
                 cur.report_md = r_md.group(1).strip()
                 continue
@@ -255,6 +316,13 @@ def _run_job(job_id: str) -> None:
             _append_log(cur, "Job canceled by user.")
         else:
             cur.status = "completed" if exit_code == 0 else "failed"
+        
+        # Clean up addon profile temp file if it exists
+        if cur.addon_profile_path and pathlib.Path(cur.addon_profile_path).exists():
+            try:
+                pathlib.Path(cur.addon_profile_path).unlink()
+            except Exception:
+                pass
 
 
 def _serialize_job(job: JobState) -> dict[str, Any]:
@@ -543,7 +611,7 @@ def api_start() -> Any:
         return jsonify({"error": "difficulty must be heroic or mythic"}), 400
     if parallel_raiders < 1:
         return jsonify({"error": "parallel_raiders must be >= 1"}), 400
-    if not (APP_ROOT / config).exists():
+    if not (WOWSIM_ROOT / config).exists():
         return jsonify({
             "error": f"Config file not found: {config}",
             "default_config": default_config_name(),
@@ -602,6 +670,9 @@ def api_jobs_start() -> Any:
     site_team_id = payload.get("site_team_id")
     difficulty = str(payload.get("difficulty", "heroic")).strip().lower()
     mode = str(payload.get("mode", "site")).strip().lower()
+    addon_export = str(payload.get("addon_export", "")).strip() if mode == "addon" else ""
+    sim_raid = str(payload.get("sim_raid", "all")).strip().lower()
+    sim_difficulty = str(payload.get("sim_difficulty", "all")).strip().lower()
 
     if not char_name:
         return jsonify({"error": "char_name is required"}), 400
@@ -611,8 +682,14 @@ def api_jobs_start() -> Any:
         return jsonify({"error": "site_team_id must be a positive integer"}), 400
     if difficulty not in {"heroic", "mythic"}:
         return jsonify({"error": "difficulty must be heroic or mythic"}), 400
-    if mode != "site":
-        return jsonify({"error": "Only mode=site is supported via the website launcher"}), 400
+    if mode not in {"site", "addon"}:
+        return jsonify({"error": "mode must be site or addon"}), 400
+    if mode == "addon" and not addon_export:
+        return jsonify({"error": "addon_export is required when mode is addon"}), 400
+    if sim_raid not in {"all", "voidspire", "dreamrift", "queldanas"}:
+        sim_raid = "all"
+    if sim_difficulty not in {"all", "normal", "heroic", "mythic"}:
+        sim_difficulty = "all"
 
     base_url = _site_base_url()
     runner_key = _runner_key()
@@ -620,17 +697,38 @@ def api_jobs_start() -> Any:
         return jsonify({"error": "SIM_SITE_BASE_URL_DEV and SIM_RUNNER_KEY_DEV must be set in .env.simrunner.local"}), 503
 
     config_name = _website_config(difficulty)
-    if not (APP_ROOT / config_name).exists():
+    if not (WOWSIM_ROOT / config_name).exists():
         return jsonify({"error": f"Config file not found: {config_name}"}), 503
 
-    cmd = [
-        sys.executable, "-u", "website_sim_runner.py",
+    addon_profile_path: str | None = None
+    if mode == "addon":
+        # Write addon export to a temp file
+        try:
+            fd, addon_profile_path = tempfile.mkstemp(suffix=".txt", prefix="addon_", text=True)
+            try:
+                os.write(fd, addon_export.encode("utf-8"))
+            finally:
+                os.close(fd)
+        except Exception as e:
+            return jsonify({"error": f"Failed to write addon profile: {str(e)}"}), 500
+
+    mode_args: list[str]
+    if mode == "addon":
+        # Guaranteed by validation and temp file creation above.
+        mode_args = ["--mode", "addon", "--addon-profile", addon_profile_path or ""]
+    else:
+        mode_args = ["--mode", "site"]
+
+    cmd = _build_runner_command(
         "--config", config_name,
         "--site-base-url", base_url,
         "--runner-key", runner_key,
         "--character-name", char_name,
         "--team-id", str(site_team_id),
-    ]
+        "--sim-raid", sim_raid,
+        "--sim-difficulty", sim_difficulty,
+        *mode_args,
+    )
 
     job_id = uuid.uuid4().hex
     job = JobState(
@@ -638,6 +736,7 @@ def api_jobs_start() -> Any:
         command=cmd,
         status="queued",
         started_at=dt.datetime.now().isoformat(timespec="seconds"),
+        addon_profile_path=addon_profile_path,
     )
     with job_lock:
         jobs[job_id] = job
@@ -752,7 +851,7 @@ def api_job_report(job_id: str, kind: str) -> Any:
 
     file_path = pathlib.Path(report_path)
     if not file_path.is_absolute():
-        file_path = (APP_ROOT / file_path).resolve()
+        file_path = (WOWSIM_ROOT / file_path).resolve()
 
     if not file_path.exists() or not file_path.is_file():
         return jsonify({"error": f"report file not found: {file_path}"}), 404

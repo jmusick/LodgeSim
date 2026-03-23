@@ -8,6 +8,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,8 +24,24 @@ from droptimizer import (
     run_droptimizer_for_profile,
     slugify,
 )
-from generate_live_candidates import ensure_generated_candidate_file
+from generate_live_candidates import DEFAULT_RAID_IDS, ensure_generated_candidate_file
 from guild_droptimizer import collect_winners_from_raider_csv, merge_item_winners
+
+
+# Mapping from UI raid slug → Raidbots instance IDs
+RAID_INSTANCE_IDS: dict[str, list[int]] = {
+    "voidspire": [1307],
+    "dreamrift": [1314],
+    "queldanas": [1308],
+    "all": DEFAULT_RAID_IDS,
+}
+
+RAID_DISPLAY_NAMES: dict[str, str] = {
+    "voidspire": "The Voidspire",
+    "dreamrift": "The Dreamrift",
+    "queldanas": "March on Quel'Danas",
+    "all": "All Raids",
+}
 
 
 @dataclass
@@ -59,6 +76,17 @@ class TargetsResponse:
 
 def utc_now() -> str:
     return dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
+
+
+def _enable_line_buffering() -> None:
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
 
 def _request_json(
@@ -200,23 +228,45 @@ def _normalize_character_filter(value: str) -> str:
     return value.strip().lower()
 
 
-def _resolve_candidates_for_profile(config: Config, config_path: pathlib.Path, profile_path: pathlib.Path) -> pathlib.Path:
+def _resolve_candidates_for_profile(
+    config: Config,
+    config_path: pathlib.Path,
+    profile_path: pathlib.Path,
+    selected_instance_ids: set[int] | None = None,
+    difficulties: list[str] | None = None,
+    filtered_output_dir: pathlib.Path | None = None,
+) -> pathlib.Path:
     default_path = pathlib.Path(config.candidates_path).resolve()
     profile_text = profile_path.read_text(encoding="utf-8")
     class_name, spec_name = extract_profile_class_spec(profile_text)
     if class_name and spec_name:
         exact_key = f"{class_name}:{spec_name}"
-        match = config.candidates_by_spec.get(exact_key)
-        if match and pathlib.Path(match).exists():
-            return pathlib.Path(match).resolve()
 
-        generated_path = ensure_generated_candidate_file(
-            config_path=config_path,
-            spec_key=exact_key,
-            strict=config.strict_spec_mapping,
-        )
-        config.candidates_by_spec[exact_key] = str(generated_path)
-        return generated_path.resolve()
+        if selected_instance_ids is None and difficulties is None:
+            # Unfiltered: use the shared cached candidate file.
+            match = config.candidates_by_spec.get(exact_key)
+            if match and pathlib.Path(match).exists():
+                return pathlib.Path(match).resolve()
+            generated_path = ensure_generated_candidate_file(
+                config_path=config_path,
+                spec_key=exact_key,
+                strict=config.strict_spec_mapping,
+            )
+            config.candidates_by_spec[exact_key] = str(generated_path)
+            return generated_path.resolve()
+        else:
+            # Filtered: write to a per-job directory so we never overwrite the
+            # shared unfiltered file.  No caching — regenerate fresh each run.
+            generated_path = ensure_generated_candidate_file(
+                config_path=config_path,
+                spec_key=exact_key,
+                strict=config.strict_spec_mapping,
+                output_dir=filtered_output_dir,
+                selected_instance_ids=selected_instance_ids,
+                difficulties=difficulties,
+                refresh=True,
+            )
+            return generated_path.resolve()
 
     if class_name:
         class_match = config.candidates_by_spec.get(class_name)
@@ -285,6 +335,8 @@ def run_team(
     output_root: pathlib.Path,
     max_raiders_override: int,
     positive_only_override: bool | None,
+    sim_raid: str = "all",
+    sim_difficulty: str = "all",
 ) -> None:
     run_id = str(uuid.uuid4())
     started_at = utc_now()
@@ -292,7 +344,21 @@ def run_team(
     out_dir = output_root / f"team_{team.team_id}_{team_slug}_{team.difficulty}_{run_id[:8]}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[team {team.team_id}] Starting run {run_id} ({team.team_name} / {team.difficulty})")
+    # Resolve raid/difficulty filter
+    selected_instance_ids: set[int] | None = None
+    effective_difficulties: list[str] | None = None
+    if sim_raid and sim_raid != "all":
+        instance_list = RAID_INSTANCE_IDS.get(sim_raid, DEFAULT_RAID_IDS)
+        selected_instance_ids = set(instance_list)
+    if sim_difficulty and sim_difficulty != "all":
+        effective_difficulties = [sim_difficulty]
+
+    sim_raid_label = RAID_DISPLAY_NAMES.get(sim_raid, "All Raids") if sim_raid else "All Raids"
+
+    print(
+        f"[team {team.team_id}] Starting run {run_id} "
+        f"({team.team_name} / {team.difficulty} / raid={sim_raid_label} / difficulty_filter={sim_difficulty})"
+    )
 
     _call_start(
         base_url,
@@ -338,7 +404,14 @@ def run_team(
             print(f"[team {team.team_id}] [{idx}/{len(raiders)}] Simming {label}")
             profile_path = out_dir / "imported_profiles" / f"{slugify(label)}.simc"
             export_profile_from_armory(config, _armory_url(raider), profile_path)
-            filtered_candidates_path = _resolve_candidates_for_profile(config, config_path, profile_path)
+            filtered_candidates_path = _resolve_candidates_for_profile(
+                config,
+                config_path,
+                profile_path,
+                selected_instance_ids=selected_instance_ids,
+                difficulties=effective_difficulties,
+                filtered_output_dir=out_dir / "filtered-candidates" if (selected_instance_ids or effective_difficulties) else None,
+            )
             print(f"[team {team.team_id}] [{idx}/{len(raiders)}] Candidates: {filtered_candidates_path.name}")
 
             raider_out = out_dir / slugify(label)
@@ -400,6 +473,8 @@ def run_team(
                 "finished_at_utc": utc_now(),
                 "site_team_id": team.team_id,
                 "difficulty": team.difficulty,
+                "sim_raid_label": sim_raid_label,
+                "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
                 "simc_version": None,
                 "runner_version": "wowsim-website-runner-v1",
                 "raider_summaries": raider_summaries,
@@ -417,7 +492,143 @@ def run_team(
         raise
 
 
+def run_addon_profile(
+    config: Config,
+    config_path: pathlib.Path,
+    base_url: str,
+    runner_key: str,
+    roster_revision: str,
+    team: TargetTeam,
+    raider: TargetRaider,
+    addon_profile_path: pathlib.Path,
+    output_root: pathlib.Path,
+    sim_raid: str = "all",
+    sim_difficulty: str = "all",
+) -> None:
+    run_id = str(uuid.uuid4())
+    started_at = utc_now()
+    team_slug = slugify(team.team_name) or f"team-{team.team_id}"
+    out_dir = output_root / f"team_{team.team_id}_{team_slug}_{team.difficulty}_{run_id[:8]}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Resolve raid/difficulty filter
+    selected_instance_ids: set[int] | None = None
+    effective_difficulties: list[str] | None = None
+    if sim_raid and sim_raid != "all":
+        instance_list = RAID_INSTANCE_IDS.get(sim_raid, DEFAULT_RAID_IDS)
+        selected_instance_ids = set(instance_list)
+    if sim_difficulty and sim_difficulty != "all":
+        effective_difficulties = [sim_difficulty]
+
+    sim_raid_label = RAID_DISPLAY_NAMES.get(sim_raid, "All Raids") if sim_raid else "All Raids"
+    label = f"{raider.name}-{raider.realm_slug}"
+
+    print(
+        f"[team {team.team_id}] Starting addon run {run_id} "
+        f"({team.team_name} / {team.difficulty} / raid={sim_raid_label} / difficulty_filter={sim_difficulty})"
+    )
+
+    _call_start(
+        base_url,
+        runner_key,
+        {
+            "run_id": run_id,
+            "site_team_id": team.team_id,
+            "roster_revision": roster_revision,
+            "difficulty": team.difficulty,
+            "started_at_utc": started_at,
+            "simc_version": None,
+            "runner_version": "wowsim-website-runner-v1",
+        },
+    )
+
+    try:
+        print(f"[team {team.team_id}] Simming addon profile for {label}")
+
+        profile_path = out_dir / "imported_profiles" / f"{slugify(label)}.simc"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(addon_profile_path, profile_path)
+
+        filtered_candidates_path = _resolve_candidates_for_profile(
+            config,
+            config_path,
+            profile_path,
+            selected_instance_ids=selected_instance_ids,
+            difficulties=effective_difficulties,
+            filtered_output_dir=out_dir / "filtered-candidates" if (selected_instance_ids or effective_difficulties) else None,
+        )
+        print(f"[team {team.team_id}] Candidates: {filtered_candidates_path.name}")
+
+        raider_out = out_dir / slugify(label)
+        summary = run_droptimizer_for_profile(
+            config=config,
+            profile_path=profile_path,
+            candidates_path=filtered_candidates_path,
+            out_dir=raider_out,
+            label=label,
+        )
+
+        _call_heartbeat(base_url, runner_key, run_id, team.team_id)
+
+        winners = merge_item_winners([collect_winners_from_raider_csv(summary.csv_path, label)])
+
+        item_winners = []
+        for winner in winners:
+            item_winners.append(
+                {
+                    "slot": winner.slot,
+                    "item_id": int(winner.item_id) if winner.item_id else None,
+                    "item_label": winner.item_label,
+                    "ilvl": float(winner.ilvl) if winner.ilvl else None,
+                    "source": winner.source or None,
+                    "best_blizzard_char_id": raider.blizzard_char_id,
+                    "delta_dps": winner.delta,
+                    "pct_gain": winner.pct_gain,
+                    "simc": winner.simc,
+                }
+            )
+
+        raider_summaries = [
+            {
+                "blizzard_char_id": raider.blizzard_char_id,
+                "baseline_dps": summary.baseline_dps,
+                "top_scenario": summary.best_scenario,
+                "top_dps": summary.best_dps,
+                "gain_dps": summary.best_dps - summary.baseline_dps,
+            }
+        ]
+
+        _call_results(
+            base_url,
+            runner_key,
+            {
+                "run_id": run_id,
+                "roster_revision": roster_revision,
+                "started_at_utc": started_at,
+                "finished_at_utc": utc_now(),
+                "site_team_id": team.team_id,
+                "difficulty": team.difficulty,
+                "sim_raid_label": sim_raid_label,
+                "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
+                "simc_version": None,
+                "runner_version": "wowsim-website-runner-v1",
+                "raider_summaries": raider_summaries,
+                "item_winners": item_winners,
+            },
+        )
+
+        _call_finish(base_url, runner_key, run_id, team.team_id, successful=True)
+        print(
+            f"[team {team.team_id}] Completed addon run {run_id}: "
+            f"1 raider, {len(item_winners)} winners"
+        )
+    except Exception as exc:
+        _call_finish(base_url, runner_key, run_id, team.team_id, successful=False, error_message=str(exc))
+        raise
+
+
 def main() -> int:
+    _enable_line_buffering()
     parser = argparse.ArgumentParser(description="Website-integrated WoWSim runner")
     parser.add_argument("--config", default="config.guild.json", help="Path to WoWSim config JSON")
     parser.add_argument(
@@ -469,11 +680,47 @@ def main() -> int:
         action="store_true",
         help="Allow manual bulk target pull/runs without a specific --team-id and --character-name.",
     )
+    parser.add_argument(
+        "--sim-raid",
+        default="all",
+        choices=["all", "voidspire", "dreamrift", "queldanas"],
+        help="Restrict candidate pool to a single raid. Default: all raids.",
+    )
+    parser.add_argument(
+        "--sim-difficulty",
+        default="all",
+        choices=["all", "normal", "heroic", "mythic"],
+        help="Restrict candidate pool to a single difficulty. Default: all.",
+    )
+    parser.add_argument(
+        "--mode",
+        default="site",
+        choices=["site", "addon"],
+        help="Sim input mode: site (website data) or addon (SimC export). Default: site.",
+    )
+    parser.add_argument(
+        "--addon-profile",
+        default="",
+        help="Path to SimC addon export file. Required when mode=addon.",
+    )
     args = parser.parse_args()
 
+    mode = args.mode.strip().lower()
+    addon_profile_path = args.addon_profile.strip()
+    
     requested_character = args.character_name.strip()
     requested_teams = bool(args.team_id)
-    if not args.allow_bulk_run and (not requested_character or not requested_teams):
+    if mode == "addon":
+        if not addon_profile_path:
+            print("ERROR: --addon-profile is required when --mode=addon")
+            return 2
+        if not pathlib.Path(addon_profile_path).exists():
+            print(f"ERROR: Addon profile file not found: {addon_profile_path}")
+            return 2
+        if not requested_character or not requested_teams:
+            print("ERROR: Addon mode requires both --team-id and --character-name.")
+            return 2
+    elif not args.allow_bulk_run and (not requested_character or not requested_teams):
         print(
             "ERROR: Bulk/manual runs are disabled by default. "
             "Website-triggered mode requires both --team-id and --character-name."
@@ -536,6 +783,36 @@ def main() -> int:
             print("No teams to run.")
             return 0
 
+        if mode == "addon":
+            requested_name = _normalize_character_filter(requested_character)
+            selected_team = teams[0]
+            selected_raider: TargetRaider | None = None
+            for raider in selected_team.raiders:
+                if _normalize_character_filter(raider.name) == requested_name:
+                    selected_raider = raider
+                    break
+
+            if selected_raider is None:
+                raise RuntimeError(
+                    f"Requested addon character '{requested_character}' not found in team {selected_team.team_id}."
+                )
+
+            run_addon_profile(
+                config=config,
+                config_path=config_path,
+                base_url=base_url,
+                runner_key=runner_key,
+                roster_revision=targets.roster_revision,
+                team=selected_team,
+                raider=selected_raider,
+                addon_profile_path=pathlib.Path(addon_profile_path).resolve(),
+                output_root=output_root,
+                sim_raid=args.sim_raid,
+                sim_difficulty=args.sim_difficulty,
+            )
+            print("Addon run completed.")
+            return 0
+
         for team in teams:
             run_team(
                 config=config,
@@ -547,6 +824,8 @@ def main() -> int:
                 output_root=output_root,
                 max_raiders_override=args.max_raiders,
                 positive_only_override=True if args.positive_only else None,
+                sim_raid=args.sim_raid,
+                sim_difficulty=args.sim_difficulty,
             )
 
         print("All requested teams completed.")

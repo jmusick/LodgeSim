@@ -9,6 +9,7 @@ import datetime as dt
 import html as _html
 import itertools
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -52,6 +53,23 @@ UPGRADE_BONUS_RANK: dict[int, int] = {
     12802: 14,
     12803: 15,
     12804: 16,
+}
+
+# Live-generated candidates can use plain ilevel-based SimC strings instead of
+# bonus_id tracks. When we assume fully upgraded candidates, normalize those
+# base drop ilvls to the max upgrade step available for that difficulty track.
+ILEVEL_MAX_UPGRADE_MAP: dict[int, int] = {
+    250: 259,
+    263: 272,
+    276: 285,
+    282: 289,
+}
+
+ILEVEL_DIFFICULTY_LABEL: dict[int, str] = {
+    250: "LFR",
+    263: "Normal",
+    276: "Heroic",
+    282: "Mythic",
 }
 
 SLOT_KEYS = {
@@ -211,6 +229,17 @@ def load_json(path: pathlib.Path) -> Any:
         return json.load(handle)
 
 
+def _windows_subprocess_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+
+    kwargs: dict[str, Any] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
 def _resolve_config_path(raw_value: str | None, config_dir: pathlib.Path) -> str | None:
     if raw_value is None:
         return None
@@ -341,6 +370,12 @@ def _candidate_upgrade_score(simc_item: str) -> int:
     return best
 
 
+def _upgrade_ilevel_candidate(simc_item: str, label: str | None) -> tuple[str, str | None]:
+    # Live candidate JSON already emits difficulty-specific final ilvls.
+    # Applying an additional ilevel upgrade step here inflates outputs.
+    return simc_item, label
+
+
 def _upgrade_and_reduce_candidates(candidates: dict[str, Any]) -> dict[str, Any]:
     slots_raw = candidates.get("slots")
     if not isinstance(slots_raw, dict):
@@ -361,10 +396,22 @@ def _upgrade_and_reduce_candidates(candidates: dict[str, Any]) -> dict[str, Any]
             upgraded_simc = _upgrade_bonus_ids_in_simc_item(simc_item)
 
             updated = dict(item)
+            updated_label = str(updated.get("label")) if updated.get("label") is not None else None
+            upgraded_simc, upgraded_label = _upgrade_ilevel_candidate(upgraded_simc, updated_label)
             updated["simc"] = upgraded_simc
+            if upgraded_label is not None:
+                updated["label"] = upgraded_label
 
             item_id = _item_id_from_simc(upgraded_simc)
             if item_id is None:
+                passthrough.append(updated)
+                continue
+
+            # Items without bonus_id use ilevel-only SimC strings and represent
+            # distinct difficulty variants (e.g. Normal/Heroic/Mythic drops). They
+            # are NOT upgrade-tier variants of the same item, so skip deduplication
+            # and preserve all of them.
+            if not re.search(r"\bbonus_id=", upgraded_simc):
                 passthrough.append(updated)
                 continue
 
@@ -612,7 +659,13 @@ def export_profile_from_armory(
         f"save={out_profile_path}",
     ]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        **_windows_subprocess_kwargs(),
+    )
     if proc.returncode != 0:
         raise RuntimeError(
             "SimulationCraft armory import failed.\n"
@@ -641,7 +694,13 @@ def run_sim(config: Config, profile_text: str, scenario: Scenario, out_dir: path
         simc_profile.write_text(profile_text, encoding="utf-8")
         cmd = build_command(config, simc_profile, json_path)
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            **_windows_subprocess_kwargs(),
+        )
 
         if proc.returncode != 0:
             raise RuntimeError(
@@ -681,7 +740,7 @@ def run_sim(config: Config, profile_text: str, scenario: Scenario, out_dir: path
 
 def _emit_progress(pct: int, stage: str, detail: str) -> None:
     pct = max(0, min(100, int(pct)))
-    print(f"@@PROGRESS@@ pct={pct} stage={stage} detail={detail}")
+    print(f"@@PROGRESS@@ pct={pct} stage={stage} detail={detail}", flush=True)
 
 
 # ---------------------------------------------------------------------------

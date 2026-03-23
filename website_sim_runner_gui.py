@@ -22,6 +22,76 @@ RUNNER_SCRIPT = APP_ROOT / "website_sim_runner.py"
 WEBAPP_SCRIPT = APP_ROOT / "webapp.py"
 
 
+def _find_wowsim_root() -> pathlib.Path:
+    """Find the WoWSim root directory, searching in multiple locations."""
+    locations = [
+        # Current APP_ROOT (when running as script)
+        APP_ROOT,
+        # Parent directories (in case running from a subdirectory)
+        APP_ROOT.parent,
+        APP_ROOT.parent.parent,
+        # Common dev locations
+        pathlib.Path.cwd(),
+        pathlib.Path.cwd().parent,
+    ]
+
+    for loc in locations:
+        # Check for marker files that indicate this is the WoWSim root
+        if (loc / ".env.simrunner.local.example").exists() or (loc / "webapp.py").exists():
+            return loc
+
+    # Fallback to APP_ROOT
+    return APP_ROOT
+
+
+def _load_dotenv(path: pathlib.Path) -> None:
+    """Load environment variables from .env file."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+    except FileNotFoundError:
+        pass
+
+
+WOWSIM_ROOT = _find_wowsim_root()
+_load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
+# Also try current working directory (for when running as standalone exe)
+_load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
+
+RUNNER_SCRIPT = WOWSIM_ROOT / "website_sim_runner.py"
+WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
+
+
+def _build_runner_command(*args: str) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--run-website-sim", *args]
+    return [sys.executable, str(RUNNER_SCRIPT), *args]
+
+
+def _windows_subprocess_kwargs() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+
+    kwargs: dict[str, object] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+try:
+    from webapp import app as flask_app
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
+
+
+
 class RunnerGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -31,21 +101,41 @@ class RunnerGui(tk.Tk):
 
         self._proc: subprocess.Popen[str] | None = None
         self._api_proc: subprocess.Popen[str] | None = None
+        self._simc_update_proc: subprocess.Popen[str] | None = None
         self._queue: queue.Queue[str] = queue.Queue()
+        self._run_in_progress = False
+        self._simc_update_in_progress = False
 
         self.environment = tk.StringVar(value="dev")
         self.api_status = tk.StringVar(value="checking...")
         self.server_status = tk.StringVar(value="checking...")
+        self.simc_status = tk.StringVar(value="checking...")
+        self.job_id = tk.StringVar(value="none")
+        self.job_status = tk.StringVar(value="idle")
+        self.job_progress = tk.StringVar(value="Waiting for a run to start")
+        self.job_detail = tk.StringVar(value="-")
+        self.job_last_output = tk.StringVar(value="-")
+        self.job_progress_pct = tk.IntVar(value=0)
 
         self._server_dot_canvas: tk.Canvas | None = None
         self._server_dot_id: int | None = None
         self._api_dot_canvas: tk.Canvas | None = None
         self._api_dot_id: int | None = None
+        self._simc_dot_canvas: tk.Canvas | None = None
+        self._simc_dot_id: int | None = None
+        self._simc_check_btn: ttk.Button | None = None
+
+        # Track job logs to avoid re-displaying the same lines
+        self._job_log_line_counts: dict[str, int] = {}
+        self._seen_job_headers: set[str] = set()
+        self._job_progress_state: dict[str, tuple[str, int, str, str]] = {}
 
         self._build_ui()
         self._ensure_api_server_started()
         self._refresh_server_status()
+        self._start_simc_auto_update_check()
         self.after(100, self._drain_output)
+        self.after(500, self._poll_jobs)
         self._schedule_connection_check()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -84,10 +174,10 @@ class RunnerGui(tk.Tk):
         self.run_btn.pack(side=tk.LEFT)
 
         status_col = ttk.Frame(button_row)
-        status_col.pack(side=tk.RIGHT, anchor=tk.E)
+        status_col.pack(side=tk.RIGHT, anchor=tk.W)
 
         server_row = ttk.Frame(status_col)
-        server_row.pack(anchor=tk.E)
+        server_row.pack(anchor=tk.W)
         self._server_dot_canvas = tk.Canvas(server_row, width=10, height=10, highlightthickness=0, bd=0)
         self._server_dot_canvas.pack(side=tk.LEFT, padx=(0, 6))
         self._server_dot_id = self._server_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
@@ -95,25 +185,213 @@ class RunnerGui(tk.Tk):
         ttk.Label(server_row, textvariable=self.server_status).pack(side=tk.LEFT, padx=(6, 0))
 
         api_row = ttk.Frame(status_col)
-        api_row.pack(anchor=tk.E)
+        api_row.pack(anchor=tk.W)
         self._api_dot_canvas = tk.Canvas(api_row, width=10, height=10, highlightthickness=0, bd=0)
         self._api_dot_canvas.pack(side=tk.LEFT, padx=(0, 6))
         self._api_dot_id = self._api_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
         ttk.Label(api_row, text="Website API:").pack(side=tk.LEFT)
         ttk.Label(api_row, textvariable=self.api_status).pack(side=tk.LEFT, padx=(6, 0))
 
+        simc_row = ttk.Frame(status_col)
+        simc_row.pack(anchor=tk.W)
+        self._simc_dot_canvas = tk.Canvas(simc_row, width=10, height=10, highlightthickness=0, bd=0)
+        self._simc_dot_canvas.pack(side=tk.LEFT, padx=(0, 6))
+        self._simc_dot_id = self._simc_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
+        ttk.Label(simc_row, text="SimC Auto-Update:").pack(side=tk.LEFT)
+        ttk.Label(simc_row, textvariable=self.simc_status).pack(side=tk.LEFT, padx=(6, 0))
+        self._simc_check_btn = ttk.Button(simc_row, text="Check Now", command=self._start_simc_auto_update_check, width=10)
+        self._simc_check_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+        job_frame = ttk.LabelFrame(root, text="Current Job", padding=10)
+        job_frame.pack(fill=tk.X, pady=(0, 10))
+
+        job_row_1 = ttk.Frame(job_frame)
+        job_row_1.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(job_row_1, text="Job:", width=12).pack(side=tk.LEFT)
+        ttk.Label(job_row_1, textvariable=self.job_id).pack(side=tk.LEFT)
+        ttk.Label(job_row_1, text="Status:", width=12).pack(side=tk.LEFT, padx=(18, 0))
+        ttk.Label(job_row_1, textvariable=self.job_status).pack(side=tk.LEFT)
+
+        job_row_2 = ttk.Frame(job_frame)
+        job_row_2.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(job_row_2, text="Progress:", width=12).pack(side=tk.LEFT)
+        ttk.Label(job_row_2, textvariable=self.job_progress).pack(side=tk.LEFT)
+
+        self.job_progress_bar = ttk.Progressbar(
+            job_frame,
+            orient=tk.HORIZONTAL,
+            mode="determinate",
+            maximum=100,
+            variable=self.job_progress_pct,
+        )
+        self.job_progress_bar.pack(fill=tk.X, pady=(0, 6))
+
+        job_row_3 = ttk.Frame(job_frame)
+        job_row_3.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(job_row_3, text="Detail:", width=12).pack(side=tk.LEFT)
+        ttk.Label(job_row_3, textvariable=self.job_detail).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        job_row_4 = ttk.Frame(job_frame)
+        job_row_4.pack(fill=tk.X)
+        ttk.Label(job_row_4, text="Last Output:", width=12).pack(side=tk.LEFT)
+        ttk.Label(job_row_4, textvariable=self.job_last_output).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         output_frame = ttk.LabelFrame(root, text="Console", padding=8)
         output_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.output = tk.Text(output_frame, wrap=tk.NONE, font=("Consolas", 10))
+        self.output = tk.Text(output_frame, wrap=tk.CHAR, font=("Consolas", 10))
         self.output.pack(fill=tk.BOTH, expand=True)
 
     def _append(self, line: str) -> None:
         self.output.insert(tk.END, line)
         self.output.see(tk.END)
 
+    def _set_job_panel(self, job: dict[str, object] | None) -> None:
+        if not job:
+            self.job_id.set("none")
+            self.job_status.set("idle")
+            self.job_progress.set("Waiting for a run to start")
+            self.job_detail.set("-")
+            self.job_last_output.set("-")
+            self.job_progress_pct.set(0)
+            return
+
+        job_id = str(job.get("id") or "none")[:8]
+        status = str(job.get("status") or "unknown")
+        progress_pct_raw = job.get("progress_pct")
+        progress_pct = int(progress_pct_raw) if isinstance(progress_pct_raw, int) else 0
+        # Snap to 100% for any terminal state so the bar always completes
+        if status in {"completed", "failed", "canceled", "timed_out"}:
+            progress_pct = 100
+        progress_stage = str(job.get("progress_stage") or "").strip()
+        progress_detail = str(job.get("progress_detail") or "").strip()
+        progress_label = str(job.get("progress_label") or "").strip()
+        last_line = str(job.get("last_line") or "").strip()
+
+        progress_text = progress_label or progress_stage or status.title()
+        if progress_pct > 0:
+            progress_text = f"{progress_pct}% - {progress_text}"
+
+        detail_text = progress_detail or last_line or "-"
+        last_output_text = last_line or progress_label or "-"
+
+        self.job_id.set(job_id)
+        self.job_status.set(status)
+        self.job_progress.set(progress_text)
+        self.job_detail.set(detail_text)
+        self.job_last_output.set(last_output_text)
+        self.job_progress_pct.set(progress_pct)
+
+    def _queue_progress_update(self, job: dict[str, object]) -> None:
+        job_id = str(job.get("id") or "")
+        if not job_id:
+            return
+
+        status = str(job.get("status") or "unknown")
+        progress_pct_raw = job.get("progress_pct")
+        progress_pct = int(progress_pct_raw) if isinstance(progress_pct_raw, int) else 0
+        progress_stage = str(job.get("progress_stage") or "").strip()
+        progress_detail = str(job.get("progress_detail") or "").strip()
+        progress_state = (status, progress_pct, progress_stage, progress_detail)
+        previous_state = self._job_progress_state.get(job_id)
+        if previous_state == progress_state:
+            return
+
+        self._job_progress_state[job_id] = progress_state
+
+        summary_parts = [f"status={status}"]
+        if progress_pct:
+            summary_parts.append(f"pct={progress_pct}")
+        if progress_stage:
+            summary_parts.append(f"stage={progress_stage}")
+        if progress_detail:
+            summary_parts.append(f"detail={progress_detail}")
+
+        self._queue.put(f"[website job {job_id[:8]}] {' | '.join(summary_parts)}\n")
+
+    def _refresh_run_button_state(self) -> None:
+        disable = self._run_in_progress or self._simc_update_in_progress
+        self.run_btn.configure(state=tk.DISABLED if disable else tk.NORMAL)
+        if self._simc_check_btn is not None:
+            self._simc_check_btn.configure(state=tk.DISABLED if self._simc_update_in_progress else tk.NORMAL)
+
     def _set_running(self, running: bool) -> None:
-        self.run_btn.configure(state=tk.DISABLED if running else tk.NORMAL)
+        self._run_in_progress = running
+        self._refresh_run_button_state()
+
+    def _simc_auto_update_enabled(self) -> bool:
+        raw = (os.getenv("WOWSIM_AUTO_UPDATE_SIMC_ON_LAUNCH") or "1").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    def _set_simc_status(self, message: str, state: str) -> None:
+        self.simc_status.set(message)
+        self._set_dot_state(self._simc_dot_canvas, self._simc_dot_id, state)
+
+    def _start_simc_auto_update_check(self) -> None:
+        if not self._simc_auto_update_enabled():
+            self._set_simc_status("disabled", "warn")
+            self._simc_update_in_progress = False
+            self._refresh_run_button_state()
+            return
+
+        script_path = WOWSIM_ROOT / "update-simc.ps1"
+        if not script_path.exists():
+            self._set_simc_status("script missing", "error")
+            self._simc_update_in_progress = False
+            self._refresh_run_button_state()
+            return
+
+        self._simc_update_in_progress = True
+        self._refresh_run_button_state()
+        self._set_simc_status("checking...", "checking")
+        self._queue.put("[simc-update] Checking for SimulationCraft nightly updates...\n")
+
+        def worker() -> None:
+            cmd = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+            ]
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(WOWSIM_ROOT),
+                    env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    **_windows_subprocess_kwargs(),
+                )
+            except Exception as exc:
+                self.after(0, lambda: self._finish_simc_update(f"failed to start ({str(exc)[:40]})", "error"))
+                return
+
+            self._simc_update_proc = proc
+            try:
+                if proc.stdout is not None:
+                    for line in proc.stdout:
+                        self._queue.put(f"[simc-update] {line}")
+                code = proc.wait()
+            finally:
+                self._simc_update_proc = None
+
+            if code == 0:
+                self.after(0, lambda: self._finish_simc_update("up to date", "ok"))
+            else:
+                self.after(0, lambda: self._finish_simc_update(f"failed (exit {code})", "error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_simc_update(self, message: str, state: str) -> None:
+        self._simc_update_in_progress = False
+        self._set_simc_status(message, state)
+        self._refresh_run_button_state()
 
     def _on_environment_change(self) -> None:
         self._set_api_status("checking...", "checking")
@@ -124,11 +402,10 @@ class RunnerGui(tk.Tk):
         self.after(30000, self._schedule_connection_check)
 
     def _refresh_server_status(self) -> None:
-        owner = "desktop" if self._api_proc is not None and self._api_proc.poll() is None else "external"
         if self._is_local_webapp_reachable():
-            self._set_server_status(f"running ({owner})", "ok")
+            self._set_server_status("running", "ok")
         else:
-            self._set_server_status("stopped", "error")
+            self._set_server_status("not running", "error")
         self.after(3000, self._refresh_server_status)
 
     def _set_dot_state(self, canvas: tk.Canvas | None, dot_id: int | None, state: str) -> None:
@@ -160,34 +437,72 @@ class RunnerGui(tk.Tk):
             return False
 
     def _ensure_api_server_started(self) -> None:
-        if not WEBAPP_SCRIPT.exists():
-            self._set_server_status(f"missing {WEBAPP_SCRIPT.name}", "error")
+        # Check if already reachable
+        if self._is_local_webapp_reachable():
+            self._set_server_status("running", "ok")
             return
 
-        if self._is_local_webapp_reachable():
-            self._set_server_status("running (external)", "ok")
+        # Try to start Flask app in-process if available
+        if FLASK_AVAILABLE:
+            self._set_server_status("starting...", "checking")
+            try:
+                def run_flask() -> None:
+                    # Suppress Flask's default logging
+                    import logging
+                    log = logging.getLogger('werkzeug')
+                    log.setLevel(logging.ERROR)
+                    flask_app.run(host='127.0.0.1', port=5050, debug=False, use_reloader=False)
+                
+                self._api_proc = threading.Thread(target=run_flask, daemon=True)
+                self._api_proc.start()
+                
+                # Wait for server to be reachable
+                for _ in range(30):  # 6 seconds with 0.2s intervals
+                    time.sleep(0.2)
+                    if self._is_local_webapp_reachable():
+                        self._set_server_status("running", "ok")
+                        return
+                
+                self._set_server_status("failed to start", "error")
+            except Exception as e:
+                self._set_server_status(f"error: {str(e)[:30]}", "error")
+            return
+        
+        # Fallback: try subprocess if Flask not directly available
+        if not WEBAPP_SCRIPT.exists():
+            self._set_server_status(f"missing {WEBAPP_SCRIPT.name}", "error")
             return
 
         self._set_server_status("starting...", "checking")
         self._api_proc = subprocess.Popen(
             [sys.executable, str(WEBAPP_SCRIPT)],
-            cwd=str(APP_ROOT),
+            cwd=str(WOWSIM_ROOT),
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             text=True,
+            **_windows_subprocess_kwargs(),
         )
 
         for _ in range(15):
             if self._is_local_webapp_reachable():
-                self._set_server_status("running (desktop)", "ok")
+                self._set_server_status("running", "ok")
                 return
             time.sleep(0.2)
 
         self._set_server_status("failed to start", "error")
 
     def _stop_api_server(self) -> None:
+        if self._api_proc is None:
+            return
+        
+        # If it's a Thread (in-process), it's a daemon so it will stop on exit
+        if isinstance(self._api_proc, threading.Thread):
+            return
+        
+        # Otherwise it's a subprocess
         proc = self._api_proc
-        if proc is None or proc.poll() is not None:
+        if proc.poll() is not None:
             return
 
         if os.name == "nt":
@@ -209,6 +524,20 @@ class RunnerGui(tk.Tk):
                 pass
 
     def _on_close(self) -> None:
+        if self._simc_update_proc is not None and self._simc_update_proc.poll() is None:
+            try:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(self._simc_update_proc.pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                else:
+                    self._simc_update_proc.terminate()
+            except Exception:
+                pass
+
         self._stop_api_server()
         self.destroy()
 
@@ -232,7 +561,7 @@ class RunnerGui(tk.Tk):
     def _check_connection_now(self) -> tuple[str, str]:
         base_url, runner_key = self._resolve_api_settings()
         if not base_url or not runner_key:
-            return "missing SIM_* env vars", "error"
+            return "not connected", "error"
 
         url = f"{base_url.rstrip('/')}/api/sim/targets"
         req = urllib.request.Request(
@@ -244,29 +573,26 @@ class RunnerGui(tk.Tk):
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
-                payload = json.loads(raw) if raw.strip() else {}
-                teams = payload.get("teams") if isinstance(payload, dict) else None
-                team_count = len(teams) if isinstance(teams, list) else 0
-                return f"connected ({team_count} team(s))", "ok"
-        except urllib.error.HTTPError as exc:
-            return f"HTTP {exc.code}", "error"
+                _ = json.loads(raw) if raw.strip() else {}
+                return "connected", "ok"
+        except urllib.error.HTTPError:
+            return "not connected", "error"
         except Exception:
-            return "unreachable", "error"
+            return "not connected", "error"
 
     def _build_command(self) -> list[str]:
-        python_exe = sys.executable
-        command = [
-            python_exe,
-            str(RUNNER_SCRIPT),
+        return _build_runner_command(
             "--environment",
             self.environment.get(),
             "--config",
             "config.guild.json",
-        ]
-
-        return command
+        )
 
     def _start_run(self) -> None:
+        if self._simc_update_in_progress:
+            self._append("SimulationCraft update check is still running. Please wait.\n")
+            return
+
         if not self._manual_start_enabled():
             self._append(
                 "Manual starts are disabled. Trigger sims from HiddenLodgeWebsite. "
@@ -285,7 +611,7 @@ class RunnerGui(tk.Tk):
 
         command = self._build_command()
 
-        if not RUNNER_SCRIPT.exists():
+        if not getattr(sys, "frozen", False) and not RUNNER_SCRIPT.exists():
             self._append(f"Could not find: {RUNNER_SCRIPT}\n")
             return
 
@@ -295,13 +621,15 @@ class RunnerGui(tk.Tk):
 
         self._proc = subprocess.Popen(
             command,
-            cwd=str(APP_ROOT),
+            cwd=str(WOWSIM_ROOT),
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            **_windows_subprocess_kwargs(),
         )
 
         threading.Thread(target=self._read_output, daemon=True).start()
@@ -336,8 +664,109 @@ class RunnerGui(tk.Tk):
 
         self.after(100, self._drain_output)
 
+    def _poll_jobs(self) -> None:
+        """Poll the Flask API for active jobs and display their logs."""
+        def worker() -> None:
+            try:
+                with socket.create_connection(("127.0.0.1", 5050), timeout=2.0):
+                    pass
+            except OSError:
+                self.after(2000, self._poll_jobs)
+                return
+
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:5050/api/jobs",
+                    headers={"Accept": "application/json"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                    jobs_data = json.loads(raw) if raw.strip() else []
+                    if isinstance(jobs_data, list):
+                        jobs_list = jobs_data
+                    elif isinstance(jobs_data, dict):
+                        jobs_list = jobs_data.get("jobs", [])
+                    else:
+                        jobs_list = []
+
+                    display_job: dict[str, object] | None = None
+
+                    for job in jobs_list:
+                        if not isinstance(job, dict):
+                            continue
+                        job_id = job.get("id")
+                        status = job.get("status")
+                        if display_job is None:
+                            display_job = job
+                        if status not in {"completed", "failed", "canceled", "timed_out"}:
+                            display_job = job
+                        if not job_id or status in {"completed", "failed", "canceled", "timed_out"}:
+                            continue
+
+                        if job_id not in self._seen_job_headers:
+                            progress_label = str(job.get("progress_label") or "").strip()
+                            header = f"\n[website job {str(job_id)[:8]}] status={status}"
+                            if progress_label:
+                                header += f" progress={progress_label}"
+                            self._queue.put(header + "\n")
+                            self._seen_job_headers.add(job_id)
+
+                        self._queue_progress_update(job)
+
+                        # Fetch logs for this job
+                        self._fetch_and_display_job_logs(job_id)
+
+                    self.after(0, lambda: self._set_job_panel(display_job))
+
+            except Exception:
+                pass
+
+            self.after(500, self._poll_jobs)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _fetch_and_display_job_logs(self, job_id: str) -> None:
+        """Fetch new log lines for a job and display them."""
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:5050/api/jobs/{job_id}/log?tail=1000",
+                headers={"Accept": "application/json"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw.strip() else {}
+                lines = data.get("lines", [])
+                if not isinstance(lines, list):
+                    return
+
+                # Track how many lines we've already displayed for this job
+                prev_count = self._job_log_line_counts.get(job_id, 0)
+                current_count = len(lines)
+
+                # Display only new lines
+                if current_count > prev_count:
+                    for line in lines[prev_count:]:
+                        self._queue.put(line + "\n")
+
+                self._job_log_line_counts[job_id] = current_count
+
+        except Exception:
+            pass
+
+
+def _run_embedded_website_runner() -> int:
+    import website_sim_runner
+
+    sys.argv = ["website_sim_runner.py", *sys.argv[2:]]
+    return website_sim_runner.main()
+
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-website-sim":
+        return _run_embedded_website_runner()
+
     app = RunnerGui()
     app.mainloop()
     return 0
