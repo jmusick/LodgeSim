@@ -27,3 +27,6 @@ tmp-*/
 # Input files with personal character data (committed selectively)
 # input/ is tracked — add specific exclusions below if needed
 
+
+# Local Claude agent settings
+.claude/

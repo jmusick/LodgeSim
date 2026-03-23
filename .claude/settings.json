@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -c \":*)",
-      "Bash(find c:/Users/JD/source/WoWSim/results/guild-runs/website-runs/team_3_mythic_raiders_mythic_66758b24 -name *.simc)",
-      "Bash(grep -i inescapable c:/Users/JD/source/WoWSim/candidates*.json)"
-    ]
-  }
-}
