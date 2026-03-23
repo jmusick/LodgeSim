@@ -30,3 +30,6 @@ tmp-*/
 
 # Local Claude agent settings
 .claude/
+
+# VS Code workspace settings
+.vscode/
