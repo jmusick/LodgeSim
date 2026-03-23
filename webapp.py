@@ -285,6 +285,19 @@ def _passive_stale_secs() -> int:
     return max(3600, min(7 * 24 * 60 * 60, value))
 
 
+def _passive_startup_stale_secs() -> int:
+    """Stale threshold used only for the first passive poll after app startup.
+
+    Defaults to 0 so startup can immediately enqueue pending work.
+    """
+    raw = (os.environ.get("WOWSIM_PASSIVE_STARTUP_MAX_AGE_SECS") or "").strip()
+    try:
+        value = int(raw) if raw else 0
+    except ValueError:
+        value = 0
+    return max(0, min(7 * 24 * 60 * 60, value))
+
+
 def _manual_jobs_active_locked() -> bool:
     for job in jobs.values():
         if not job.source.startswith("manual"):
@@ -487,6 +500,7 @@ def _ensure_passive_scheduler_started() -> None:
             return
 
         def passive_loop() -> None:
+            first_poll = True
             while not shutdown_event.is_set():
                 interval = _passive_interval_secs()
                 if not _passive_enabled():
@@ -500,7 +514,9 @@ def _ensure_passive_scheduler_started() -> None:
                             break
                         continue
 
-                tasks = _fetch_passive_tasks(max_tasks=10, stale_secs=_passive_stale_secs())
+                stale_secs = _passive_startup_stale_secs() if first_poll else _passive_stale_secs()
+                first_poll = False
+                tasks = _fetch_passive_tasks(max_tasks=10, stale_secs=stale_secs)
                 if not tasks:
                     if shutdown_event.wait(interval):
                         break
