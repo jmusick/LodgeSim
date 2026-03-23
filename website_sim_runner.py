@@ -660,8 +660,9 @@ def _single_target_config(config: Config) -> Config:
         max_scenarios=1,
         staged_pruning=False,
         staged_threshold=config.staged_threshold,
-        assume_fully_upgraded_equipped=config.assume_fully_upgraded_equipped,
-        assume_fully_upgraded_candidates=config.assume_fully_upgraded_candidates,
+        # Keep single-target aligned with current character state (Raidbots Quick Sim parity).
+        assume_fully_upgraded_equipped=False,
+        assume_fully_upgraded_candidates=False,
         candidates_by_spec=config.candidates_by_spec,
         strict_spec_mapping=config.strict_spec_mapping,
     )
