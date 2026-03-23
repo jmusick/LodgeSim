@@ -13,6 +13,17 @@ tools/
 # Sim outputs (generated, not committed)
 results/
 
+# PyInstaller build artifacts and compiled EXEs
+build/
+build-patched/
+build-patched-new/
+dist/
+dist-patched/
+dist-patched-new/
+
+# Temporary test/scratch folders
+tmp-*/
+
 # Input files with personal character data (committed selectively)
 # input/ is tracked — add specific exclusions below if needed
 

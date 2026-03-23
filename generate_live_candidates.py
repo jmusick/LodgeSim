@@ -17,6 +17,7 @@ RAIDBOTS_BASE = "https://www.raidbots.com/static/data/live"
 USER_AGENT = "Mozilla/5.0"
 DEFAULT_POOL_NAME = "all-raids-normal-hc-mythic.live"
 DEFAULT_OUTPUT_SUBDIR = pathlib.Path("generated") / "live-candidates"
+TIER_SOURCE_OVERRIDES_PATH = pathlib.Path(__file__).with_name("tier_source_overrides.json")
 
 RAID_DIFFICULTY_ILVLS = {
     "lfr": 250,
@@ -171,6 +172,22 @@ def fetch_json(name: str) -> Any:
         return json.load(response)
 
 
+@functools.lru_cache(maxsize=1)
+def load_tier_source_overrides() -> dict[int, str]:
+    if not TIER_SOURCE_OVERRIDES_PATH.exists():
+        return {}
+
+    raw = json.loads(TIER_SOURCE_OVERRIDES_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"Tier source overrides must be a JSON object: {TIER_SOURCE_OVERRIDES_PATH}")
+
+    overrides: dict[int, str] = {}
+    for item_id, source_label in raw.items():
+        if isinstance(source_label, str):
+            overrides[int(item_id)] = source_label
+    return overrides
+
+
 def spec_slug(spec_key: str) -> str:
     normalized = normalize_candidate_mapping_key(spec_key)
     if ":" in normalized:
@@ -238,19 +255,43 @@ def resolve_source_label(item: dict[str, Any], instance_names: dict[int, str], e
             encounter_name = encounter_names.get(int(source["encounterId"]), f"Encounter {source['encounterId']}")
             return f"{instance_name} - {encounter_name}"
 
+    item_id = int(item.get("id") or 0)
+    tier_source_overrides = load_tier_source_overrides()
     for source in item.get("sources", []):
         if int(source.get("instanceId") or 0) == CATALYST_INSTANCE_ID:
+            if item_id in tier_source_overrides:
+                return tier_source_overrides[item_id]
             return "Catalyst - Midnight Season 1"
 
     return "Unknown Source"
 
 
-def should_include_item(item: dict[str, Any], selected_instance_ids: set[int], include_catalyst_tier: bool) -> bool:
+def should_include_item(
+    item: dict[str, Any],
+    selected_instance_ids: set[int],
+    include_catalyst_tier: bool,
+    instance_names: dict[int, str] | None = None,
+) -> bool:
     sources = item.get("sources") or []
     if any(int(source.get("instanceId") or 0) in selected_instance_ids for source in sources):
         return True
-    if include_catalyst_tier and item.get("itemSetId") and any(int(source.get("instanceId") or 0) == CATALYST_INSTANCE_ID for source in sources):
-        return True
+    if include_catalyst_tier and item.get("itemSetId") and any(
+        int(source.get("instanceId") or 0) == CATALYST_INSTANCE_ID for source in sources
+    ):
+        # When filtering to specific instances, only include catalyst tier pieces
+        # whose home raid is one of the selected instances.
+        if instance_names is not None:
+            tier_overrides = load_tier_source_overrides()
+            item_id = int(item.get("id") or 0)
+            if item_id in tier_overrides:
+                override_label = tier_overrides[item_id]
+                selected_names = {instance_names.get(iid, "") for iid in selected_instance_ids}
+                return any(
+                    override_label.startswith(name + " -")
+                    for name in selected_names
+                    if name
+                )
+        return True  # no instance_names provided (all-raids mode), include all catalyst tiers
     return False
 
 
@@ -296,7 +337,7 @@ def build_candidates(
     seen: dict[str, set[str]] = defaultdict(set)
 
     for item in items:
-        if not should_include_item(item, selected_instance_ids, include_catalyst_tier):
+        if not should_include_item(item, selected_instance_ids, include_catalyst_tier, instance_names):
             continue
         if not is_item_eligible(item, class_name, class_id, spec_id):
             continue
@@ -348,6 +389,31 @@ def _resolve_output_dir(config_path: pathlib.Path, output_dir: pathlib.Path | No
     return (config_path.parent / output_dir).resolve()
 
 
+def _candidate_file_is_stale(output_path: pathlib.Path) -> bool:
+    if not output_path.exists():
+        return True
+
+    try:
+        output_mtime = output_path.stat().st_mtime
+    except OSError:
+        return True
+
+    dependency_paths = [
+        pathlib.Path(__file__),
+        TIER_SOURCE_OVERRIDES_PATH,
+    ]
+    for dependency_path in dependency_paths:
+        if not dependency_path.exists():
+            continue
+        try:
+            if dependency_path.stat().st_mtime > output_mtime:
+                return True
+        except OSError:
+            return True
+
+    return False
+
+
 def ensure_generated_candidate_file(
     config_path: pathlib.Path,
     spec_key: str,
@@ -367,14 +433,21 @@ def ensure_generated_candidate_file(
 
     existing_path_raw = mappings.get(normalized_spec)
     resolved_output_dir = _resolve_output_dir(config_path, output_dir)
-    output_path = pathlib.Path(existing_path_raw).resolve() if existing_path_raw else default_output_path(
+    uses_explicit_output_dir = output_dir is not None
+    output_path = default_output_path(
         normalized_spec,
         pool_name,
         output_dir=resolved_output_dir,
+    ) if uses_explicit_output_dir else (
+        pathlib.Path(existing_path_raw).resolve() if existing_path_raw else default_output_path(
+            normalized_spec,
+            pool_name,
+            output_dir=resolved_output_dir,
+        )
     )
 
-    if output_path.exists() and not refresh:
-        if not existing_path_raw:
+    if output_path.exists() and not refresh and not _candidate_file_is_stale(output_path):
+        if not existing_path_raw and not uses_explicit_output_dir:
             register_mappings(config_path, {normalized_spec: output_path}, strict, default_spec=normalized_spec if set_default else "")
         return output_path
 
@@ -391,7 +464,8 @@ def ensure_generated_candidate_file(
         encounter_names=encounter_names,
     )
     write_candidates_file(output_path, payload)
-    register_mappings(config_path, {normalized_spec: output_path}, strict, default_spec=normalized_spec if set_default else "")
+    if not uses_explicit_output_dir:
+        register_mappings(config_path, {normalized_spec: output_path}, strict, default_spec=normalized_spec if set_default else "")
     return output_path
 
 

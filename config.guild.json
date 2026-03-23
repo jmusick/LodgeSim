@@ -17,6 +17,7 @@
   "max_scenarios": 1200,
   "assume_fully_upgraded_equipped": true,
   "assume_fully_upgraded_candidates": true,
+  "staged_pruning": false,
   "strict_spec_mapping": true,
   "candidates_by_spec": {
     "hunter:survival": "C:\\Users\\JD\\source\\WoWSim\\generated\\live-candidates\\candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
