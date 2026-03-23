@@ -203,6 +203,7 @@ SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 
 
 shutdown_event = threading.Event()
+passive_wakeup_event = threading.Event()
 _passive_endpoint_404_backoff_until = 0
 fallback_state_lock = threading.Lock()
 FALLBACK_STATE_PATH = WOWSIM_ROOT / "generated" / "passive-fallback-state.json"
@@ -327,6 +328,18 @@ def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
 
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         return opener.open(req, timeout=timeout)
+
+
+def _passive_wait(interval: int) -> bool:
+    """Wait for next passive loop tick, but wake early when nudged.
+
+    Returns True only when shutdown is requested.
+    """
+    if shutdown_event.wait(0):
+        return True
+    if passive_wakeup_event.wait(interval):
+        passive_wakeup_event.clear()
+    return shutdown_event.is_set()
 
 
 def _fetch_passive_tasks(max_tasks: int, stale_secs: int) -> list[dict[str, Any]]:
@@ -504,13 +517,13 @@ def _ensure_passive_scheduler_started() -> None:
             while not shutdown_event.is_set():
                 interval = _passive_interval_secs()
                 if not _passive_enabled():
-                    if shutdown_event.wait(interval):
+                    if _passive_wait(interval):
                         break
                     continue
 
                 with job_lock:
                     if _manual_jobs_active_locked():
-                        if shutdown_event.wait(interval):
+                        if _passive_wait(interval):
                             break
                         continue
 
@@ -518,7 +531,7 @@ def _ensure_passive_scheduler_started() -> None:
                 first_poll = False
                 tasks = _fetch_passive_tasks(max_tasks=10, stale_secs=stale_secs)
                 if not tasks:
-                    if shutdown_event.wait(interval):
+                    if _passive_wait(interval):
                         break
                     continue
 
@@ -569,7 +582,7 @@ def _ensure_passive_scheduler_started() -> None:
                 if enqueued_any:
                     print("[passive] queued one or more stale background tasks")
 
-                if shutdown_event.wait(interval):
+                if _passive_wait(interval):
                     break
 
         passive_scheduler_thread = threading.Thread(target=passive_loop, daemon=True, name="wowsim-passive-scheduler")
@@ -1418,6 +1431,7 @@ def api_admin_environment() -> Any:
         return jsonify({"error": "environment must be dev or prod"}), 400
 
     _set_active_environment(desired)
+    passive_wakeup_event.set()
     return jsonify({
         "ok": True,
         "environment": _get_active_environment(),
