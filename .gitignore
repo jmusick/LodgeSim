@@ -6,6 +6,11 @@
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+*.log
 
 # SimC binary / downloads (large binaries, not source)
 tools/
