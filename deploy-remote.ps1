@@ -87,9 +87,21 @@ Write-Host "Copying EXE -> $targetExe"
 Copy-Item -LiteralPath $distExe -Destination $targetExe -Force
 
 # Runtime helper files used by the GUI and runner.
-Copy-OptionalFile -Source (Join-Path $scriptRootResolved "update-simc.ps1") -Destination (Join-Path $TargetRoot "update-simc.ps1")
-Copy-OptionalFile -Source (Join-Path $scriptRootResolved "run-website-gui.ps1") -Destination (Join-Path $TargetRoot "run-website-gui.ps1")
-Copy-OptionalFile -Source (Join-Path $scriptRootResolved "tier_source_overrides.json") -Destination (Join-Path $TargetRoot "tier_source_overrides.json")
+$helperFiles = @(
+  "update-simc.ps1",
+  "run-website-gui.ps1",
+  "tier_source_overrides.json"
+)
+foreach ($helper in $helperFiles) {
+  $src = Join-Path $scriptRootResolved $helper
+  $dst = Join-Path $TargetRoot $helper
+  if (Test-Path -LiteralPath $src) {
+    Copy-Item -LiteralPath $src -Destination $dst -Force
+    Write-Host "Copied $helper -> $dst"
+  } else {
+    Write-Warning "Helper file not found, skipping: $src"
+  }
+}
 
 # Config deployment with path rewrites for remote execution.
 $sourceConfigPath = Join-Path $scriptRootResolved $ConfigName

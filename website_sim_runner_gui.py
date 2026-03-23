@@ -662,10 +662,15 @@ class RunnerGui(tk.Tk):
                 raw = resp.read().decode("utf-8", errors="replace")
                 _ = json.loads(raw) if raw.strip() else {}
                 return "connected", "ok"
-        except urllib.error.HTTPError:
-            return "not connected", "error"
-        except Exception:
-            return "not connected", "error"
+        except urllib.error.HTTPError as exc:
+            return f"not connected (HTTP {exc.code})", "error"
+        except urllib.error.URLError as exc:
+            reason = str(exc.reason) if exc.reason else str(exc)
+            short = reason[:40]
+            return f"not connected ({short})", "error"
+        except Exception as exc:
+            short = str(exc)[:40]
+            return f"not connected ({short})", "error"
 
     def _drain_output(self) -> None:
         try:
