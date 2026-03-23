@@ -13,6 +13,8 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptRootResolved = (Resolve-Path $scriptRoot).Path
 
 function Resolve-JsonPathForTarget {
+  # Returns a relative path (relative to $TargetRoot) so the config works
+  # regardless of whether the EXE runs via UNC, a local drive letter, etc.
   param(
     [Parameter(Mandatory = $true)][string]$Value,
     [Parameter(Mandatory = $true)][string]$SourceRoot,
@@ -30,21 +32,23 @@ function Resolve-JsonPathForTarget {
 
   $trimChars = [char[]]@('\', '/')
   $sourceRootNormalized = $SourceRoot.TrimEnd($trimChars)
-  $targetRootNormalized = $TargetRoot.TrimEnd($trimChars)
 
   if ([System.IO.Path]::IsPathRooted($Value)) {
-    $candidate = $Value.Replace('/', '\\')
-    $srcNorm = $sourceRootNormalized.Replace('/', '\\')
+    $candidate = $Value.Replace('/', '\')
+    $srcNorm = $sourceRootNormalized.Replace('/', '\')
 
     if ($candidate.StartsWith($srcNorm, [System.StringComparison]::OrdinalIgnoreCase)) {
-      $relative = $candidate.Substring($srcNorm.Length).TrimStart('\\')
-      return (Join-Path $targetRootNormalized $relative).Replace('\\', '/')
+      # Strip the source root to get the relative portion, use forward slashes.
+      $relative = $candidate.Substring($srcNorm.Length).TrimStart('\')
+      return $relative.Replace('\', '/')
     }
 
+    # Absolute path under a different root — return unchanged.
     return $Value
   }
 
-  return (Join-Path $targetRootNormalized $Value).Replace('\\', '/')
+  # Already relative — normalise slashes and return as-is.
+  return $Value.Replace('\', '/')
 }
 
 function New-DirectoryIfMissing {
@@ -105,7 +109,8 @@ if ($configJson.PSObject.Properties.Name -contains "candidates_path") {
   $configJson.candidates_path = Resolve-JsonPathForTarget -Value ([string]$configJson.candidates_path) -SourceRoot $scriptRootResolved -TargetRoot $TargetRoot
 }
 if ($configJson.PSObject.Properties.Name -contains "output_dir") {
-  $configJson.output_dir = (Join-Path $TargetRoot "results/guild-runs").Replace('\\', '/')
+  # Relative path — resolves from the config file's directory on any machine.
+  $configJson.output_dir = "results/guild-runs"
 }
 if ($configJson.PSObject.Properties.Name -contains "candidates_by_spec" -and $null -ne $configJson.candidates_by_spec) {
   foreach ($p in $configJson.candidates_by_spec.PSObject.Properties) {
