@@ -1,10 +1,10 @@
 param(
-  [string]$TargetRoot = "\\Ark-Server\WoWSim",
+  [string]$TargetRoot = '\\Ark-Server\WoWSim',
   [string]$ExeName = "WoWSim Website Runner.exe",
   [string]$ConfigName = "config.guild.json",
-  [bool]$IncludeSimc = $true,
-  [bool]$IncludeCandidates = $true,
-  [bool]$IncludeEnv = $true
+  [switch]$SkipSimc,
+  [switch]$SkipCandidates,
+  [switch]$SkipEnv
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,7 +120,7 @@ Write-Host "Wrote config -> $targetConfigPath"
 # Optional data files expected by config.
 Copy-OptionalFile -Source (Join-Path $scriptRootResolved "input\character.simc") -Destination (Join-Path $TargetRoot "input\character.simc")
 
-if ($IncludeCandidates) {
+if (-not $SkipCandidates) {
   $sourceCandidates = Join-Path $scriptRootResolved "generated\live-candidates"
   $targetCandidates = Join-Path $TargetRoot "generated\live-candidates"
   if (Test-Path -LiteralPath $sourceCandidates) {
@@ -137,7 +137,7 @@ if ($IncludeCandidates) {
   }
 }
 
-if ($IncludeSimc) {
+if (-not $SkipSimc) {
   $sourceSimc = Join-Path $scriptRootResolved "tools\simc\nightly\current"
   $targetSimc = Join-Path $TargetRoot "tools\simc\nightly\current"
   if (Test-Path -LiteralPath $sourceSimc) {
@@ -154,7 +154,7 @@ if ($IncludeSimc) {
   }
 }
 
-if ($IncludeEnv) {
+if (-not $SkipEnv) {
   $sourceEnv = Join-Path $scriptRootResolved ".env.simrunner.local"
   $targetEnv = Join-Path $TargetRoot ".env.simrunner.local"
 
