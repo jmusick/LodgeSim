@@ -89,6 +89,9 @@ def _enable_line_buffering() -> None:
         pass
 
 
+    SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
+
+
 def _request_json(
     method: str,
     url: str,
@@ -99,6 +102,7 @@ def _request_json(
     headers = {
         "Accept": "application/json",
         "X-Sim-Runner-Key": runner_key,
+        "User-Agent": SIM_API_USER_AGENT,
     }
     data: bytes | None = None
     if payload is not None:

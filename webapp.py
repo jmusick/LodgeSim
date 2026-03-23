@@ -199,6 +199,7 @@ PASSIVE_DEFAULT_INTERVAL_SECS = 300
 PASSIVE_DEFAULT_STALE_SECS = 24 * 60 * 60
 PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
 PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
+SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
 shutdown_event = threading.Event()
@@ -324,6 +325,7 @@ def _fetch_passive_tasks(max_tasks: int, stale_secs: int) -> list[dict[str, Any]
         headers={
             "Accept": "application/json",
             "X-Sim-Runner-Key": runner_key,
+            "User-Agent": SIM_API_USER_AGENT,
         },
         method="GET",
     )
@@ -357,6 +359,7 @@ def _fetch_passive_tasks_from_targets(base_url: str, runner_key: str, max_tasks:
         headers={
             "Accept": "application/json",
             "X-Sim-Runner-Key": runner_key,
+            "User-Agent": SIM_API_USER_AGENT,
         },
         method="GET",
     )

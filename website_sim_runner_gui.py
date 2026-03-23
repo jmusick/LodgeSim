@@ -79,6 +79,7 @@ _load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
 _load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
 
 WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
+SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
 def _windows_subprocess_kwargs() -> dict[str, object]:
@@ -669,7 +670,11 @@ class RunnerGui(tk.Tk):
         url = f"{base_url.rstrip('/')}/api/sim/targets"
         req = urllib.request.Request(
             url,
-            headers={"Accept": "application/json", "X-Sim-Runner-Key": runner_key},
+            headers={
+                "Accept": "application/json",
+                "X-Sim-Runner-Key": runner_key,
+                "User-Agent": SIM_API_USER_AGENT,
+            },
             method="GET",
         )
 
