@@ -627,6 +627,123 @@ def run_addon_profile(
         raise
 
 
+def _single_target_config(config: Config) -> Config:
+    return Config(
+        simc_path=config.simc_path,
+        base_profile_path=config.base_profile_path,
+        candidates_path=config.candidates_path,
+        raiders_path=config.raiders_path,
+        armory_url=config.armory_url,
+        output_dir=config.output_dir,
+        mode=config.mode,
+        iterations=config.iterations,
+        threads=config.threads,
+        fight_style=config.fight_style,
+        additional_options=config.additional_options,
+        max_scenarios=1,
+        staged_pruning=False,
+        staged_threshold=config.staged_threshold,
+        assume_fully_upgraded_equipped=config.assume_fully_upgraded_equipped,
+        assume_fully_upgraded_candidates=config.assume_fully_upgraded_candidates,
+        candidates_by_spec=config.candidates_by_spec,
+        strict_spec_mapping=config.strict_spec_mapping,
+    )
+
+
+def run_single_target_profile(
+    config: Config,
+    config_path: pathlib.Path,
+    base_url: str,
+    runner_key: str,
+    roster_revision: str,
+    team: TargetTeam,
+    raider: TargetRaider,
+    output_root: pathlib.Path,
+) -> None:
+    run_id = str(uuid.uuid4())
+    started_at = utc_now()
+    team_slug = slugify(team.team_name) or f"team-{team.team_id}"
+    out_dir = output_root / f"team_{team.team_id}_{team_slug}_{team.difficulty}_{run_id[:8]}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    label = f"{raider.name}-{raider.realm_slug}"
+
+    print(
+        f"[team {team.team_id}] Starting single-target run {run_id} "
+        f"({team.team_name} / {team.difficulty} / {label})"
+    )
+
+    _call_start(
+        base_url,
+        runner_key,
+        {
+            "run_id": run_id,
+            "site_team_id": team.team_id,
+            "roster_revision": roster_revision,
+            "difficulty": team.difficulty,
+            "started_at_utc": started_at,
+            "simc_version": None,
+            "runner_version": "wowsim-website-runner-v1-single-target",
+        },
+    )
+
+    try:
+        profile_path = out_dir / "imported_profiles" / f"{slugify(label)}.simc"
+        export_profile_from_armory(config, _armory_url(raider), profile_path)
+
+        candidates_path = _resolve_candidates_for_profile(
+            config,
+            config_path,
+            profile_path,
+        )
+
+        summary = run_droptimizer_for_profile(
+            config=_single_target_config(config),
+            profile_path=profile_path,
+            candidates_path=candidates_path,
+            out_dir=out_dir / slugify(label),
+            label=label,
+        )
+
+        _call_heartbeat(base_url, runner_key, run_id, team.team_id)
+
+        _call_results(
+            base_url,
+            runner_key,
+            {
+                "run_id": run_id,
+                "roster_revision": roster_revision,
+                "started_at_utc": started_at,
+                "finished_at_utc": utc_now(),
+                "site_team_id": team.team_id,
+                "difficulty": team.difficulty,
+                "sim_raid_label": "Single Target",
+                "sim_difficulty": None,
+                "simc_version": None,
+                "runner_version": "wowsim-website-runner-v1-single-target",
+                "raider_summaries": [
+                    {
+                        "blizzard_char_id": raider.blizzard_char_id,
+                        "baseline_dps": summary.baseline_dps,
+                        "top_scenario": summary.best_scenario,
+                        "top_dps": summary.best_dps,
+                        "gain_dps": summary.best_dps - summary.baseline_dps,
+                    }
+                ],
+                "item_winners": [],
+            },
+        )
+
+        _call_finish(base_url, runner_key, run_id, team.team_id, successful=True)
+        print(
+            f"[team {team.team_id}] Completed single-target run {run_id}: "
+            f"baseline={summary.baseline_dps:.2f}"
+        )
+    except Exception as exc:
+        _call_finish(base_url, runner_key, run_id, team.team_id, successful=False, error_message=str(exc))
+        raise
+
+
 def main() -> int:
     _enable_line_buffering()
     parser = argparse.ArgumentParser(description="Website-integrated WoWSim runner")
@@ -695,8 +812,8 @@ def main() -> int:
     parser.add_argument(
         "--mode",
         default="site",
-        choices=["site", "addon"],
-        help="Sim input mode: site (website data) or addon (SimC export). Default: site.",
+        choices=["site", "addon", "single_target"],
+        help="Sim input mode: site (website data), addon (SimC export), or single_target. Default: site.",
     )
     parser.add_argument(
         "--addon-profile",
@@ -811,6 +928,33 @@ def main() -> int:
                 sim_difficulty=args.sim_difficulty,
             )
             print("Addon run completed.")
+            return 0
+
+        if mode == "single_target":
+            requested_name = _normalize_character_filter(requested_character)
+            selected_team = teams[0]
+            selected_raider: TargetRaider | None = None
+            for raider in selected_team.raiders:
+                if _normalize_character_filter(raider.name) == requested_name:
+                    selected_raider = raider
+                    break
+
+            if selected_raider is None:
+                raise RuntimeError(
+                    f"Requested single-target character '{requested_character}' not found in team {selected_team.team_id}."
+                )
+
+            run_single_target_profile(
+                config=config,
+                config_path=config_path,
+                base_url=base_url,
+                runner_key=runner_key,
+                roster_revision=targets.roster_revision,
+                team=selected_team,
+                raider=selected_raider,
+                output_root=output_root,
+            )
+            print("Single-target run completed.")
             return 0
 
         for team in teams:

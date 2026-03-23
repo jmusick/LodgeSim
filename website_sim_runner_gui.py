@@ -18,7 +18,6 @@ import urllib.request
 from tkinter import ttk
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent
-RUNNER_SCRIPT = APP_ROOT / "website_sim_runner.py"
 WEBAPP_SCRIPT = APP_ROOT / "webapp.py"
 
 
@@ -63,14 +62,7 @@ _load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
 # Also try current working directory (for when running as standalone exe)
 _load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
 
-RUNNER_SCRIPT = WOWSIM_ROOT / "website_sim_runner.py"
 WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
-
-
-def _build_runner_command(*args: str) -> list[str]:
-    if getattr(sys, "frozen", False):
-        return [sys.executable, "--run-website-sim", *args]
-    return [sys.executable, str(RUNNER_SCRIPT), *args]
 
 
 def _windows_subprocess_kwargs() -> dict[str, object]:
@@ -99,11 +91,9 @@ class RunnerGui(tk.Tk):
         self.geometry("920x620")
         self.minsize(760, 500)
 
-        self._proc: subprocess.Popen[str] | None = None
         self._api_proc: subprocess.Popen[str] | None = None
         self._simc_update_proc: subprocess.Popen[str] | None = None
         self._queue: queue.Queue[str] = queue.Queue()
-        self._run_in_progress = False
         self._simc_update_in_progress = False
 
         self.environment = tk.StringVar(value="dev")
@@ -124,6 +114,11 @@ class RunnerGui(tk.Tk):
         self._simc_dot_canvas: tk.Canvas | None = None
         self._simc_dot_id: int | None = None
         self._simc_check_btn: ttk.Button | None = None
+        self.queue_selection = tk.StringVar(value="")
+        self.queue_count = tk.StringVar(value="Queued: 0")
+        self._queue_combo: ttk.Combobox | None = None
+        self._run_now_btn: ttk.Button | None = None
+        self._queue_label_to_id: dict[str, str] = {}
 
         # Track job logs to avoid re-displaying the same lines
         self._job_log_line_counts: dict[str, int] = {}
@@ -132,6 +127,7 @@ class RunnerGui(tk.Tk):
 
         self._build_ui()
         self._ensure_api_server_started()
+        self._apply_environment_to_local_app()
         self._refresh_server_status()
         self._start_simc_auto_update_check()
         self.after(100, self._drain_output)
@@ -170,8 +166,10 @@ class RunnerGui(tk.Tk):
         button_row = ttk.Frame(root)
         button_row.pack(fill=tk.X, pady=(0, 10))
 
-        self.run_btn = ttk.Button(button_row, text="Start", command=self._start_run)
-        self.run_btn.pack(side=tk.LEFT)
+        ttk.Label(
+            button_row,
+            text="Background tasks start automatically while the app is open.",
+        ).pack(side=tk.LEFT)
 
         status_col = ttk.Frame(button_row)
         status_col.pack(side=tk.RIGHT, anchor=tk.W)
@@ -235,6 +233,25 @@ class RunnerGui(tk.Tk):
         job_row_4.pack(fill=tk.X)
         ttk.Label(job_row_4, text="Last Output:", width=12).pack(side=tk.LEFT)
         ttk.Label(job_row_4, textvariable=self.job_last_output).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        queue_frame = ttk.LabelFrame(root, text="Queued Work", padding=10)
+        queue_frame.pack(fill=tk.X, pady=(0, 10))
+
+        queue_row = ttk.Frame(queue_frame)
+        queue_row.pack(fill=tk.X)
+        ttk.Label(queue_row, textvariable=self.queue_count, width=14).pack(side=tk.LEFT)
+
+        self._queue_combo = ttk.Combobox(
+            queue_row,
+            textvariable=self.queue_selection,
+            state="readonly",
+            values=[],
+        )
+        self._queue_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 8))
+
+        self._run_now_btn = ttk.Button(queue_row, text="Run Now", command=self._run_selected_now)
+        self._run_now_btn.pack(side=tk.LEFT)
+        self._run_now_btn.configure(state=tk.DISABLED)
 
         output_frame = ttk.LabelFrame(root, text="Console", padding=8)
         output_frame.pack(fill=tk.BOTH, expand=True)
@@ -309,15 +326,56 @@ class RunnerGui(tk.Tk):
 
         self._queue.put(f"[website job {job_id[:8]}] {' | '.join(summary_parts)}\n")
 
+    def _update_queue_panel(self, queued_jobs: list[dict[str, object]]) -> None:
+        labels: list[str] = []
+        mapping: dict[str, str] = {}
+
+        for idx, job in enumerate(queued_jobs, start=1):
+            job_id = str(job.get("id") or "")
+            if not job_id:
+                continue
+            source = str(job.get("source") or "queued")
+            qpos = int(job.get("queue_position") or idx)
+            label = f"{qpos}. {job_id[:8]} ({source})"
+            labels.append(label)
+            mapping[label] = job_id
+
+        self._queue_label_to_id = mapping
+        self.queue_count.set(f"Queued: {len(labels)}")
+
+        if self._queue_combo is not None:
+            self._queue_combo["values"] = labels
+
+        current = self.queue_selection.get().strip()
+        if current not in mapping:
+            self.queue_selection.set(labels[0] if labels else "")
+
+        if self._run_now_btn is not None:
+            self._run_now_btn.configure(state=tk.NORMAL if labels else tk.DISABLED)
+
+    def _run_selected_now(self) -> None:
+        selected = self.queue_selection.get().strip()
+        job_id = self._queue_label_to_id.get(selected)
+        if not job_id:
+            return
+
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:5050/api/jobs/{job_id}/run-now",
+                headers={"Accept": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw.strip() else {}
+                self._queue.put(f"[queue] promoted {job_id[:8]} to the front\n")
+                _ = data
+        except Exception as exc:
+            self._queue.put(f"[queue] failed to promote {job_id[:8]}: {exc}\n")
+
     def _refresh_run_button_state(self) -> None:
-        disable = self._run_in_progress or self._simc_update_in_progress
-        self.run_btn.configure(state=tk.DISABLED if disable else tk.NORMAL)
         if self._simc_check_btn is not None:
             self._simc_check_btn.configure(state=tk.DISABLED if self._simc_update_in_progress else tk.NORMAL)
-
-    def _set_running(self, running: bool) -> None:
-        self._run_in_progress = running
-        self._refresh_run_button_state()
 
     def _simc_auto_update_enabled(self) -> bool:
         raw = (os.getenv("WOWSIM_AUTO_UPDATE_SIMC_ON_LAUNCH") or "1").strip().lower()
@@ -395,7 +453,29 @@ class RunnerGui(tk.Tk):
 
     def _on_environment_change(self) -> None:
         self._set_api_status("checking...", "checking")
+        self._apply_environment_to_local_app()
         self._check_connection_async()
+
+    def _apply_environment_to_local_app(self) -> None:
+        env_value = (self.environment.get() or "dev").strip().lower()
+        if env_value not in {"dev", "prod"}:
+            env_value = "dev"
+
+        try:
+            body = json.dumps({"environment": env_value}).encode("utf-8")
+            req = urllib.request.Request(
+                "http://127.0.0.1:5050/api/admin/environment",
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                method="POST",
+                data=body,
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw.strip() else {}
+                selected = str(data.get("environment") or env_value)
+                self._queue.put(f"[env] active environment set to {selected}\n")
+        except Exception as exc:
+            self._queue.put(f"[env] failed to set environment ({env_value}): {exc}\n")
 
     def _schedule_connection_check(self) -> None:
         self._check_connection_async()
@@ -524,6 +604,17 @@ class RunnerGui(tk.Tk):
                 pass
 
     def _on_close(self) -> None:
+        try:
+            req = urllib.request.Request(
+                "http://127.0.0.1:5050/api/admin/shutdown",
+                headers={"Accept": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=2):
+                pass
+        except Exception:
+            pass
+
         if self._simc_update_proc is not None and self._simc_update_proc.poll() is None:
             try:
                 if os.name == "nt":
@@ -546,10 +637,6 @@ class RunnerGui(tk.Tk):
         base_url = os.getenv(f"SIM_SITE_BASE_URL_{env_name}") or os.getenv("SIM_SITE_BASE_URL") or ""
         runner_key = os.getenv(f"SIM_RUNNER_KEY_{env_name}") or os.getenv("SIM_RUNNER_KEY") or ""
         return base_url.strip(), runner_key.strip()
-
-    def _manual_start_enabled(self) -> bool:
-        raw = (os.getenv("WOWSIM_ALLOW_MANUAL_START") or "").strip().lower()
-        return raw in {"1", "true", "yes", "on"}
 
     def _check_connection_async(self) -> None:
         def worker() -> None:
@@ -580,87 +667,13 @@ class RunnerGui(tk.Tk):
         except Exception:
             return "not connected", "error"
 
-    def _build_command(self) -> list[str]:
-        return _build_runner_command(
-            "--environment",
-            self.environment.get(),
-            "--config",
-            "config.guild.json",
-        )
-
-    def _start_run(self) -> None:
-        if self._simc_update_in_progress:
-            self._append("SimulationCraft update check is still running. Please wait.\n")
-            return
-
-        if not self._manual_start_enabled():
-            self._append(
-                "Manual starts are disabled. Trigger sims from HiddenLodgeWebsite. "
-                "Set WOWSIM_ALLOW_MANUAL_START=1 to override.\n"
-            )
-            return
-
-        if self._proc is not None and self._proc.poll() is None:
-            self._append("A run is already in progress.\n")
-            return
-
-        base_url, runner_key = self._resolve_api_settings()
-        if not base_url or not runner_key:
-            self._append("Missing SIM_* API settings for selected environment.\n")
-            return
-
-        command = self._build_command()
-
-        if not getattr(sys, "frozen", False) and not RUNNER_SCRIPT.exists():
-            self._append(f"Could not find: {RUNNER_SCRIPT}\n")
-            return
-
-        self.output.delete("1.0", tk.END)
-        self._append("$ " + " ".join(command) + "\n\n")
-        self._set_running(True)
-
-        self._proc = subprocess.Popen(
-            command,
-            cwd=str(WOWSIM_ROOT),
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            **_windows_subprocess_kwargs(),
-        )
-
-        threading.Thread(target=self._read_output, daemon=True).start()
-
-    def _read_output(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stdout is None:
-            return
-
-        for line in proc.stdout:
-            self._queue.put(line)
-
-        exit_code = proc.wait()
-        self._queue.put(f"\nProcess exited with code {exit_code}.\n")
-        self._queue.put("@@DONE@@")
-
     def _drain_output(self) -> None:
-        done = False
         try:
             while True:
                 item = self._queue.get_nowait()
-                if item == "@@DONE@@":
-                    done = True
-                else:
-                    self._append(item)
+                self._append(item)
         except queue.Empty:
             pass
-
-        if done:
-            self._set_running(False)
-            self._proc = None
 
         self.after(100, self._drain_output)
 
@@ -690,6 +703,8 @@ class RunnerGui(tk.Tk):
                     else:
                         jobs_list = []
 
+                    queued_jobs: list[dict[str, object]] = []
+                    running_job: dict[str, object] | None = None
                     display_job: dict[str, object] | None = None
 
                     for job in jobs_list:
@@ -697,9 +712,11 @@ class RunnerGui(tk.Tk):
                             continue
                         job_id = job.get("id")
                         status = job.get("status")
+                        if status == "queued":
+                            queued_jobs.append(job)
+                        if status in {"running", "canceling"} and running_job is None:
+                            running_job = job
                         if display_job is None:
-                            display_job = job
-                        if status not in {"completed", "failed", "canceled", "timed_out"}:
                             display_job = job
                         if not job_id or status in {"completed", "failed", "canceled", "timed_out"}:
                             continue
@@ -717,7 +734,14 @@ class RunnerGui(tk.Tk):
                         # Fetch logs for this job
                         self._fetch_and_display_job_logs(job_id)
 
+                    if running_job is not None:
+                        display_job = running_job
+                    elif queued_jobs:
+                        display_job = queued_jobs[0]
+
+                    queued_jobs.sort(key=lambda j: int(j.get("queue_position") or 999999))
                     self.after(0, lambda: self._set_job_panel(display_job))
+                    self.after(0, lambda: self._update_queue_panel(queued_jobs))
 
             except Exception:
                 pass

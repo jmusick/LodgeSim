@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import pathlib
 import re
@@ -11,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -64,17 +68,39 @@ _load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
 _load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
 
 
+active_environment_lock = threading.Lock()
+active_environment = (os.environ.get("WOWSIM_ENV") or "dev").strip().lower()
+if active_environment not in {"dev", "prod"}:
+    active_environment = "dev"
+
+
+def _get_active_environment() -> str:
+    with active_environment_lock:
+        return active_environment
+
+
+def _set_active_environment(value: str) -> None:
+    global active_environment
+    normalized = (value or "").strip().lower()
+    if normalized not in {"dev", "prod"}:
+        normalized = "dev"
+    with active_environment_lock:
+        active_environment = normalized
+
+
 def _site_base_url() -> str:
+    env_name = _get_active_environment().upper()
     return (
-        os.environ.get("SIM_SITE_BASE_URL_DEV")
+        os.environ.get(f"SIM_SITE_BASE_URL_{env_name}")
         or os.environ.get("SIM_SITE_BASE_URL")
         or ""
     ).rstrip("/")
 
 
 def _runner_key() -> str:
+    env_name = _get_active_environment().upper()
     return (
-        os.environ.get("SIM_RUNNER_KEY_DEV")
+        os.environ.get(f"SIM_RUNNER_KEY_{env_name}")
         or os.environ.get("SIM_RUNNER_KEY")
         or ""
     )
@@ -125,11 +151,21 @@ class JobState:
     report_csv: str = ""
     report_md: str = ""
     addon_profile_path: str | None = None
+    priority: int = 0
+    queue_seq: int = 0
+    source: str = "manual"
+    task_id: str | None = None
 
 
 jobs: dict[str, JobState] = {}
 job_processes: dict[str, subprocess.Popen[str]] = {}
 job_lock = threading.Lock()
+job_cond = threading.Condition(job_lock)
+job_worker_thread: threading.Thread | None = None
+passive_scheduler_thread: threading.Thread | None = None
+job_queue_seq = 0
+job_seq_lock = threading.Lock()
+passive_enqueued_at: dict[str, int] = {}
 
 
 RAIDER_START_RE = re.compile(
@@ -143,6 +179,378 @@ PROGRESS_RE = re.compile(r"^@@PROGRESS@@\s+pct=(\d+)\s+stage=(.*?)\s+detail=(.*)
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 JOB_TIMEOUT_SECS = 6 * 60 * 60
+PASSIVE_DEFAULT_INTERVAL_SECS = 300
+PASSIVE_DEFAULT_STALE_SECS = 24 * 60 * 60
+PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
+PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
+
+
+shutdown_event = threading.Event()
+_passive_endpoint_404_backoff_until = 0
+fallback_state_lock = threading.Lock()
+FALLBACK_STATE_PATH = WOWSIM_ROOT / "generated" / "passive-fallback-state.json"
+fallback_task_updated_at: dict[str, int] = {}
+
+
+def _load_fallback_state() -> None:
+    global fallback_task_updated_at
+    try:
+        raw = FALLBACK_STATE_PATH.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+        entries = payload.get("task_updated_at", {}) if isinstance(payload, dict) else {}
+        if isinstance(entries, dict):
+            normalized: dict[str, int] = {}
+            for key, value in entries.items():
+                if not isinstance(key, str):
+                    continue
+                try:
+                    ts = int(value)
+                except Exception:
+                    continue
+                if ts > 0:
+                    normalized[key] = ts
+            fallback_task_updated_at = normalized
+    except FileNotFoundError:
+        fallback_task_updated_at = {}
+    except Exception as exc:
+        print(f"[passive] failed to load fallback state: {exc}")
+        fallback_task_updated_at = {}
+
+
+def _save_fallback_state() -> None:
+    try:
+        FALLBACK_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "task_updated_at": fallback_task_updated_at,
+            "saved_at": int(dt.datetime.now(dt.UTC).timestamp()),
+        }
+        FALLBACK_STATE_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception as exc:
+        print(f"[passive] failed to save fallback state: {exc}")
+
+
+_load_fallback_state()
+
+
+def _next_queue_seq() -> int:
+    global job_queue_seq
+    with job_seq_lock:
+        job_queue_seq += 1
+        return job_queue_seq
+
+
+def _queued_jobs_sorted_locked() -> list[JobState]:
+    queued = [job for job in jobs.values() if job.status == "queued"]
+    queued.sort(key=lambda j: (-j.priority, j.queue_seq, j.started_at))
+    return queued
+
+
+def _passive_enabled() -> bool:
+    raw = (os.environ.get("WOWSIM_PASSIVE_ENABLED") or "1").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _passive_interval_secs() -> int:
+    raw = (os.environ.get("WOWSIM_PASSIVE_INTERVAL_SECS") or "").strip()
+    try:
+        value = int(raw) if raw else PASSIVE_DEFAULT_INTERVAL_SECS
+    except ValueError:
+        value = PASSIVE_DEFAULT_INTERVAL_SECS
+    return max(30, min(3600, value))
+
+
+def _passive_stale_secs() -> int:
+    raw = (os.environ.get("WOWSIM_PASSIVE_STALE_SECS") or "").strip()
+    try:
+        value = int(raw) if raw else PASSIVE_DEFAULT_STALE_SECS
+    except ValueError:
+        value = PASSIVE_DEFAULT_STALE_SECS
+    return max(3600, min(7 * 24 * 60 * 60, value))
+
+
+def _manual_jobs_active_locked() -> bool:
+    for job in jobs.values():
+        if not job.source.startswith("manual"):
+            continue
+        if job.status in {"queued", "running", "canceling"}:
+            return True
+    return False
+
+
+def _has_active_task_locked(task_id: str) -> bool:
+    for job in jobs.values():
+        if job.task_id != task_id:
+            continue
+        if job.status in {"queued", "running", "canceling"}:
+            return True
+    return False
+
+
+def _fetch_passive_tasks(max_tasks: int, stale_secs: int) -> list[dict[str, Any]]:
+    global _passive_endpoint_404_backoff_until
+
+    base_url = _site_base_url()
+    runner_key = _runner_key()
+    if not base_url or not runner_key:
+        return []
+
+    now_epoch = int(dt.datetime.now(dt.UTC).timestamp())
+    if now_epoch < _passive_endpoint_404_backoff_until:
+        return _fetch_passive_tasks_from_targets(base_url, runner_key, max_tasks, stale_secs)
+
+    query = urllib.parse.urlencode({
+        "max_tasks": str(max_tasks),
+        "max_age_seconds": str(stale_secs),
+    })
+    url = f"{base_url}/api/sim/passive/tasks?{query}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "X-Sim-Runner-Key": runner_key,
+        },
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            payload = json.loads(raw) if raw.strip() else {}
+            tasks = payload.get("tasks", []) if isinstance(payload, dict) else []
+            return tasks if isinstance(tasks, list) else []
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            _passive_endpoint_404_backoff_until = now_epoch + PASSIVE_ENDPOINT_404_BACKOFF_SECS
+            print("[passive] endpoint /api/sim/passive/tasks not found; backing off and using targets fallback")
+            return _fetch_passive_tasks_from_targets(base_url, runner_key, max_tasks, stale_secs)
+        print(f"[passive] task fetch HTTP error {exc.code}: {exc}")
+    except Exception as exc:
+        print(f"[passive] task fetch failed: {exc}")
+
+    return []
+
+
+def _fetch_passive_tasks_from_targets(base_url: str, runner_key: str, max_tasks: int, stale_secs: int) -> list[dict[str, Any]]:
+    """Fallback for older website instances that do not expose passive task endpoint.
+
+    This fallback queues single-target tasks derived from /api/sim/targets.
+    """
+    url = f"{base_url}/api/sim/targets"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "X-Sim-Runner-Key": runner_key,
+        },
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            payload = json.loads(raw) if raw.strip() else {}
+    except Exception as exc:
+        print(f"[passive] targets fallback failed: {exc}")
+        return []
+
+    teams = payload.get("teams", []) if isinstance(payload, dict) else []
+    if not isinstance(teams, list):
+        return []
+
+    tasks: list[dict[str, Any]] = []
+    now_epoch = int(dt.datetime.now(dt.UTC).timestamp())
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+
+        team_id = int(team.get("team_id") or 0)
+        difficulty = str(team.get("difficulty") or "heroic").strip().lower()
+        if team_id <= 0 or difficulty not in {"heroic", "mythic"}:
+            continue
+
+        raiders = team.get("raiders", [])
+        if not isinstance(raiders, list):
+            continue
+
+        for raider in raiders:
+            if not isinstance(raider, dict):
+                continue
+
+            char_id = int(raider.get("blizzard_char_id") or 0)
+            char_name = str(raider.get("name") or "").strip()
+            realm_slug = str(raider.get("realm_slug") or "").strip()
+            if char_id <= 0 or not char_name or not realm_slug:
+                continue
+
+            task_id = f"{team_id}:{difficulty}:{char_id}:single_target"
+            with fallback_state_lock:
+                last_updated = int(fallback_task_updated_at.get(task_id, 0) or 0)
+            stale_seconds = (now_epoch - last_updated) if last_updated > 0 else (stale_secs + 1)
+            if stale_seconds < stale_secs:
+                continue
+
+            tasks.append({
+                "task_id": task_id,
+                "task_type": "single_target",
+                "site_team_id": team_id,
+                "difficulty": difficulty,
+                "char_id": char_id,
+                "char_name": char_name,
+                "realm_slug": realm_slug,
+                "region": "us",
+                "sim_raid": "all",
+                "sim_difficulty": "all",
+                "stale_seconds": stale_seconds,
+                "last_sim_updated_at": last_updated if last_updated > 0 else None,
+            })
+
+            if len(tasks) >= max_tasks:
+                return tasks
+
+    return tasks
+
+
+def _build_passive_command(task: dict[str, Any]) -> list[str] | None:
+    task_type = str(task.get("task_type") or "droptimizer").strip().lower()
+    char_name = str(task.get("char_name") or "").strip()
+    team_id = int(task.get("site_team_id") or 0)
+    difficulty = str(task.get("difficulty") or "heroic").strip().lower()
+    sim_raid = str(task.get("sim_raid") or "all").strip().lower()
+    sim_difficulty = str(task.get("sim_difficulty") or "all").strip().lower()
+
+    if not char_name or team_id <= 0:
+        return None
+    if task_type not in {"droptimizer", "single_target"}:
+        task_type = "droptimizer"
+    if difficulty not in {"heroic", "mythic"}:
+        difficulty = "heroic"
+
+    base_url = _site_base_url()
+    runner_key = _runner_key()
+    if not base_url or not runner_key:
+        return None
+
+    config_name = _website_config(difficulty)
+    if not (WOWSIM_ROOT / config_name).exists():
+        return None
+
+    mode = "single_target" if task_type == "single_target" else "site"
+
+    return _build_runner_command(
+        "--config", config_name,
+        "--site-base-url", base_url,
+        "--runner-key", runner_key,
+        "--character-name", char_name,
+        "--team-id", str(team_id),
+        "--sim-raid", sim_raid,
+        "--sim-difficulty", sim_difficulty,
+        "--mode", mode,
+    )
+
+
+def _ensure_passive_scheduler_started() -> None:
+    global passive_scheduler_thread
+    with job_cond:
+        if passive_scheduler_thread is not None and passive_scheduler_thread.is_alive():
+            return
+
+        def passive_loop() -> None:
+            while not shutdown_event.is_set():
+                interval = _passive_interval_secs()
+                if not _passive_enabled():
+                    if shutdown_event.wait(interval):
+                        break
+                    continue
+
+                with job_lock:
+                    if _manual_jobs_active_locked():
+                        if shutdown_event.wait(interval):
+                            break
+                        continue
+
+                tasks = _fetch_passive_tasks(max_tasks=10, stale_secs=_passive_stale_secs())
+                if not tasks:
+                    if shutdown_event.wait(interval):
+                        break
+                    continue
+
+                now_epoch = int(dt.datetime.now(dt.UTC).timestamp())
+                enqueued_any = False
+
+                with job_cond:
+                    for raw_task in tasks:
+                        if not isinstance(raw_task, dict):
+                            continue
+
+                        task_id = str(raw_task.get("task_id") or "").strip()
+                        if not task_id:
+                            continue
+                        if _has_active_task_locked(task_id):
+                            continue
+
+                        last_enqueued = passive_enqueued_at.get(task_id, 0)
+                        if now_epoch - last_enqueued < PASSIVE_ENQUEUE_COOLDOWN_SECS:
+                            continue
+
+                        cmd = _build_passive_command(raw_task)
+                        if not cmd:
+                            continue
+
+                        job_id = uuid.uuid4().hex
+                        job = JobState(
+                            id=job_id,
+                            command=cmd,
+                            status="queued",
+                            started_at=dt.datetime.now().isoformat(timespec="seconds"),
+                            priority=30 if str(raw_task.get("task_type") or "") == "single_target" else 10,
+                            queue_seq=_next_queue_seq(),
+                            source=(
+                                "passive-single-target"
+                                if str(raw_task.get("task_type") or "") == "single_target"
+                                else "passive-droptimizer"
+                            ),
+                            task_id=task_id,
+                        )
+                        jobs[job_id] = job
+                        passive_enqueued_at[task_id] = now_epoch
+                        enqueued_any = True
+
+                    if enqueued_any:
+                        job_cond.notify_all()
+
+                if enqueued_any:
+                    print("[passive] queued one or more stale background tasks")
+
+                if shutdown_event.wait(interval):
+                    break
+
+        passive_scheduler_thread = threading.Thread(target=passive_loop, daemon=True, name="wowsim-passive-scheduler")
+        passive_scheduler_thread.start()
+
+
+def _ensure_worker_started() -> None:
+    global job_worker_thread
+    with job_cond:
+        if job_worker_thread is not None and job_worker_thread.is_alive():
+            return
+
+        def worker_loop() -> None:
+            while not shutdown_event.is_set():
+                with job_cond:
+                    while True:
+                        if shutdown_event.is_set():
+                            return
+                        queued = _queued_jobs_sorted_locked()
+                        if queued:
+                            next_job = queued[0]
+                            break
+                        job_cond.wait(timeout=1.0)
+                if shutdown_event.is_set():
+                    return
+                _run_job(next_job.id)
+
+        job_worker_thread = threading.Thread(target=worker_loop, daemon=True, name="wowsim-job-worker")
+        job_worker_thread.start()
 
 
 def list_config_files() -> list[str]:
@@ -153,6 +561,14 @@ def list_config_files() -> list[str]:
 def _build_runner_command(*args: str) -> list[str]:
     runner_script = WOWSIM_ROOT / "website_sim_runner.py"
     if getattr(sys, "frozen", False):
+        preferred_python = os.environ.get("WOWSIM_RUNNER_PYTHON", "").strip()
+        if preferred_python and pathlib.Path(preferred_python).exists() and runner_script.exists():
+            return [preferred_python, str(runner_script), *args]
+
+        venv_python = WOWSIM_ROOT / ".venv" / "Scripts" / "python.exe"
+        if venv_python.exists() and runner_script.exists():
+            return [str(venv_python), str(runner_script), *args]
+
         return [sys.executable, "--run-website-sim", *args]
     return [sys.executable, str(runner_script), *args]
 
@@ -219,6 +635,11 @@ def _run_job(job_id: str) -> None:
     with job_lock:
         job = jobs[job_id]
         if job.status == "canceled":
+            return
+        if shutdown_event.is_set():
+            job.status = "canceled"
+            job.ended_at = dt.datetime.now().isoformat(timespec="seconds")
+            _append_log(job, "Job canceled due to app shutdown.")
             return
         job.status = "running"
 
@@ -316,6 +737,12 @@ def _run_job(job_id: str) -> None:
             _append_log(cur, "Job canceled by user.")
         else:
             cur.status = "completed" if exit_code == 0 else "failed"
+
+        if cur.status == "completed" and cur.task_id and cur.source == "passive-single-target":
+            updated_at = int(dt.datetime.now(dt.UTC).timestamp())
+            with fallback_state_lock:
+                fallback_task_updated_at[cur.task_id] = updated_at
+                _save_fallback_state()
         
         # Clean up addon profile temp file if it exists
         if cur.addon_profile_path and pathlib.Path(cur.addon_profile_path).exists():
@@ -323,6 +750,30 @@ def _run_job(job_id: str) -> None:
                 pathlib.Path(cur.addon_profile_path).unlink()
             except Exception:
                 pass
+
+
+def _shutdown_background_workers() -> None:
+    shutdown_event.set()
+
+    processes_to_kill: list[subprocess.Popen[str]] = []
+    with job_cond:
+        for job in jobs.values():
+            if job.status == "queued":
+                job.status = "canceled"
+                job.ended_at = dt.datetime.now().isoformat(timespec="seconds")
+                _append_log(job, "Job canceled due to app shutdown.")
+            elif job.status in {"running", "canceling"}:
+                proc = job_processes.get(job.id)
+                if proc is not None:
+                    processes_to_kill.append(proc)
+                if job.status != "canceling":
+                    job.status = "canceling"
+                    _append_log(job, "App shutdown requested; terminating job process...")
+
+        job_cond.notify_all()
+
+    for proc in processes_to_kill:
+        _terminate_process_tree(proc, force=True)
 
 
 def _serialize_job(job: JobState) -> dict[str, Any]:
@@ -342,10 +793,16 @@ def _serialize_job(job: JobState) -> dict[str, Any]:
         "last_line": job.last_line,
         "report_csv": job.report_csv,
         "report_md": job.report_md,
+        "priority": job.priority,
+        "queue_seq": job.queue_seq,
+        "source": job.source,
+        "task_id": job.task_id,
     }
 
 
 app = Flask(__name__)
+_ensure_worker_started()
+_ensure_passive_scheduler_started()
 
 
 @app.get("/")
@@ -647,12 +1104,15 @@ def api_start() -> Any:
         command=cmd,
         status="queued",
         started_at=dt.datetime.now().isoformat(timespec="seconds"),
+        priority=80,
+        queue_seq=_next_queue_seq(),
+        source="manual-local",
     )
-    with job_lock:
+    with job_cond:
         jobs[job_id] = job
+        job_cond.notify_all()
 
-    t = threading.Thread(target=_run_job, args=(job_id,), daemon=True)
-    t.start()
+    _ensure_worker_started()
 
     return jsonify({"job": _serialize_job(job)})
 
@@ -737,12 +1197,15 @@ def api_jobs_start() -> Any:
         status="queued",
         started_at=dt.datetime.now().isoformat(timespec="seconds"),
         addon_profile_path=addon_profile_path,
+        priority=100,
+        queue_seq=_next_queue_seq(),
+        source="manual-website",
     )
-    with job_lock:
+    with job_cond:
         jobs[job_id] = job
+        job_cond.notify_all()
 
-    t = threading.Thread(target=_run_job, args=(job_id,), daemon=True)
-    t.start()
+    _ensure_worker_started()
 
     return jsonify({"job_id": job_id})
 
@@ -759,8 +1222,34 @@ def api_configs() -> Any:
 @app.get("/api/jobs")
 def api_jobs() -> Any:
     with job_lock:
-        data = [_serialize_job(j) for j in jobs.values()]
-    data.sort(key=lambda x: x["started_at"], reverse=True)
+        queue_positions = {job.id: idx + 1 for idx, job in enumerate(_queued_jobs_sorted_locked())}
+        data = []
+        for job in jobs.values():
+            item = _serialize_job(job)
+            item["queue_position"] = queue_positions.get(job.id)
+            data.append(item)
+
+    status_order = {
+        "running": 0,
+        "canceling": 1,
+        "queued": 2,
+        "completed": 3,
+        "failed": 4,
+        "timed_out": 5,
+        "canceled": 6,
+    }
+
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+        status = str(item.get("status") or "")
+        group = status_order.get(status, 99)
+        if status == "queued":
+            qpos = int(item.get("queue_position") or 999999)
+            return (group, qpos, str(item.get("started_at") or ""))
+        # Reverse chronological for non-queued rows by using inverse lexical marker.
+        started = str(item.get("started_at") or "")
+        return (group, 0, "~" + started)
+
+    data.sort(key=sort_key)
     return jsonify(data)
 
 
@@ -801,6 +1290,8 @@ def api_job_stop(job_id: str) -> Any:
             job.status = "canceled"
             job.ended_at = dt.datetime.now().isoformat(timespec="seconds")
             _append_log(job, "Job canceled before start.")
+            with job_cond:
+                job_cond.notify_all()
             return jsonify({"job": _serialize_job(job), "message": "job canceled"})
 
         if job.status == "canceling":
@@ -818,6 +1309,28 @@ def api_job_stop(job_id: str) -> Any:
         return jsonify({"job": _serialize_job(cur), "message": "cancel requested"})
 
 
+@app.post("/api/jobs/<job_id>/run-now")
+def api_job_run_now(job_id: str) -> Any:
+    with job_cond:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "job not found"}), 404
+
+        if job.status != "queued":
+            return jsonify({"error": "only queued jobs can be moved"}), 400
+
+        min_seq = min((j.queue_seq for j in jobs.values() if j.status == "queued"), default=job.queue_seq)
+        job.queue_seq = min_seq - 1
+        job.priority = max(job.priority, 1000)
+        _append_log(job, "Moved to front of queue.")
+        job_cond.notify_all()
+
+        queue_positions = {queued.id: idx + 1 for idx, queued in enumerate(_queued_jobs_sorted_locked())}
+        payload = _serialize_job(job)
+        payload["queue_position"] = queue_positions.get(job.id)
+        return jsonify({"job": payload, "message": "moved to front"})
+
+
 @app.post("/api/jobs/clear")
 def api_jobs_clear() -> Any:
     with job_lock:
@@ -833,6 +1346,35 @@ def api_jobs_clear() -> Any:
         remaining_ids = list(jobs.keys())
 
     return jsonify({"removed": removed, "remaining_ids": remaining_ids})
+
+
+@app.post("/api/admin/shutdown")
+def api_admin_shutdown() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    _shutdown_background_workers()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/environment")
+def api_admin_environment() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    desired = str(payload.get("environment") or "dev").strip().lower()
+    if desired not in {"dev", "prod"}:
+        return jsonify({"error": "environment must be dev or prod"}), 400
+
+    _set_active_environment(desired)
+    return jsonify({
+        "ok": True,
+        "environment": _get_active_environment(),
+        "site_base_url": _site_base_url(),
+    })
 
 
 @app.get("/api/jobs/<job_id>/report/<kind>")
@@ -865,4 +1407,5 @@ def api_job_report(job_id: str, kind: str) -> Any:
 
 
 if __name__ == "__main__":
+    _ensure_worker_started()
     app.run(host="127.0.0.1", port=5050, debug=False)
