@@ -232,7 +232,7 @@ def filter_candidates_by_difficulty(
         raise ValueError(f"Candidates JSON has invalid 'slots' object: {candidates_path}")
 
     required_bonus = DIFFICULTY_BONUS_ID[difficulty]
-    filtered_slots: dict[str, list[dict[str, str]]] = {}
+    filtered_slots: dict[str, list[dict[str, Any]]] = {}
     before = 0
     after = 0
 
@@ -240,7 +240,7 @@ def filter_candidates_by_difficulty(
         norm_slot = normalize_slot_name(str(slot))
         if not isinstance(items, list):
             continue
-        kept: list[dict[str, str]] = []
+        kept: list[dict[str, Any]] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -250,10 +250,24 @@ def filter_candidates_by_difficulty(
             before += 1
             bonus_ids = parse_bonus_ids(simc)
             if required_bonus in bonus_ids:
-                kept.append({
+                entry: dict[str, Any] = {
                     "label": str(item.get("label", simc)),
                     "simc": simc,
-                })
+                }
+
+                # Preserve slot-clearing metadata (e.g. 2H weapons clearing off_hand)
+                # so downstream scenario generation matches Raidbots behavior.
+                raw_clear_slots = item.get("clear_slots")
+                if isinstance(raw_clear_slots, list):
+                    normalized_clear_slots = [
+                        normalize_slot_name(str(slot_name).strip())
+                        for slot_name in raw_clear_slots
+                        if str(slot_name).strip()
+                    ]
+                    if normalized_clear_slots:
+                        entry["clear_slots"] = normalized_clear_slots
+
+                kept.append(entry)
                 after += 1
         if kept:
             filtered_slots.setdefault(norm_slot, []).extend(kept)
@@ -417,7 +431,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--config",
-        default="config.beastndesist.all-raids-hc-mythic.json",
+        default="config.hunter-survival.all-raids-hc-mythic.json",
         help="Droptimizer config JSON.",
     )
     parser.add_argument(

@@ -18,6 +18,42 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+# Season-specific bonus-id upgrade mapping used to normalize both equipped
+# gear and candidate pools to their highest upgrade tier when requested.
+BONUS_ID_MAX_UPGRADE_MAP: dict[int, int] = {
+    12779: 12782,
+    12785: 12790,
+    12788: 12790,
+    12789: 12790,
+    12787: 12790,
+    12793: 12798,
+    12794: 12798,
+    12795: 12798,
+    12796: 12798,
+    12801: 12804,
+    12802: 12804,
+    12803: 12804,
+}
+
+UPGRADE_BONUS_RANK: dict[int, int] = {
+    12779: 1,
+    12782: 2,
+    12785: 3,
+    12787: 4,
+    12788: 5,
+    12789: 6,
+    12790: 7,
+    12793: 8,
+    12794: 9,
+    12795: 10,
+    12796: 11,
+    12798: 12,
+    12801: 13,
+    12802: 14,
+    12803: 15,
+    12804: 16,
+}
+
 SLOT_KEYS = {
     "head",
     "neck",
@@ -50,10 +86,74 @@ SLOT_ALIASES = {
     "off_hand": "off_hand",
 }
 
+PROFILE_CLASSES = {
+    "warrior",
+    "paladin",
+    "hunter",
+    "rogue",
+    "priest",
+    "death_knight",
+    "deathknight",
+    "shaman",
+    "mage",
+    "warlock",
+    "monk",
+    "demon_hunter",
+    "demonhunter",
+    "druid",
+    "evoker",
+}
+
+PROFILE_TOKEN_ALIASES = {
+    "deathknight": "death_knight",
+    "demonhunter": "demon_hunter",
+    "beastmastery": "beast_mastery",
+}
+
 
 def normalize_slot_name(slot: str) -> str:
     key = slot.strip().lower().replace("-", "_")
     return SLOT_ALIASES.get(key, key)
+
+
+def normalize_profile_token(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return PROFILE_TOKEN_ALIASES.get(normalized, normalized)
+
+
+def normalize_candidate_mapping_key(raw_key: str) -> str:
+    value = raw_key.strip().lower().replace("/", ":")
+    if ":" in value:
+        class_name, spec_name = value.split(":", 1)
+        class_name = normalize_profile_token(class_name)
+        spec_name = normalize_profile_token(spec_name)
+        if class_name and spec_name:
+            return f"{class_name}:{spec_name}"
+    return normalize_profile_token(value)
+
+
+def extract_profile_class_spec(profile_text: str) -> tuple[str | None, str | None]:
+    class_name: str | None = None
+    spec_name: str | None = None
+
+    for line in profile_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if spec_name is None and stripped.startswith("spec="):
+            spec_name = normalize_profile_token(stripped.split("=", 1)[1])
+            continue
+
+        if class_name is None and "=" in stripped:
+            left = normalize_profile_token(stripped.split("=", 1)[0])
+            if left in PROFILE_CLASSES:
+                class_name = left
+
+        if class_name is not None and spec_name is not None:
+            break
+
+    return class_name, spec_name
 
 
 @dataclass
@@ -72,6 +172,10 @@ class Config:
     max_scenarios: int
     staged_pruning: bool
     staged_threshold: int
+    assume_fully_upgraded_equipped: bool
+    assume_fully_upgraded_candidates: bool
+    candidates_by_spec: dict[str, str]
+    strict_spec_mapping: bool
 
 
 @dataclass
@@ -138,6 +242,19 @@ def load_config(path: pathlib.Path) -> Config:
     if not isinstance(raw, dict):
         raise ValueError("Config JSON must be an object.")
     config_dir = path.resolve().parent
+    raw_candidates_by_spec = raw.get("candidates_by_spec", {})
+    candidates_by_spec: dict[str, str] = {}
+    if isinstance(raw_candidates_by_spec, dict):
+        for raw_key, raw_value in raw_candidates_by_spec.items():
+            if raw_value is None:
+                continue
+            key = normalize_candidate_mapping_key(str(raw_key))
+            if not key:
+                continue
+            resolved = _resolve_config_path(str(raw_value), config_dir)
+            if resolved:
+                candidates_by_spec[key] = resolved
+
     return Config(
         simc_path=_resolve_config_path(raw["simc_path"], config_dir) or raw["simc_path"],
         base_profile_path=_resolve_config_path(raw["base_profile_path"], config_dir) or raw["base_profile_path"],
@@ -153,7 +270,116 @@ def load_config(path: pathlib.Path) -> Config:
         max_scenarios=int(raw.get("max_scenarios", 500)),
         staged_pruning=bool(raw.get("staged_pruning", True)),
         staged_threshold=int(raw.get("staged_threshold", 24)),
+        assume_fully_upgraded_equipped=bool(raw.get("assume_fully_upgraded_equipped", False)),
+        assume_fully_upgraded_candidates=bool(raw.get("assume_fully_upgraded_candidates", False)),
+        candidates_by_spec=candidates_by_spec,
+        strict_spec_mapping=bool(raw.get("strict_spec_mapping", False)),
     )
+
+
+def _upgrade_bonus_ids_in_simc_item(simc_item: str) -> str:
+    m = re.search(r"\bbonus_id=([0-9/]+)", simc_item)
+    if not m:
+        return simc_item
+
+    raw_ids = [p for p in m.group(1).split("/") if p]
+    if not raw_ids:
+        return simc_item
+
+    upgraded: list[str] = []
+    changed = False
+    for part in raw_ids:
+        try:
+            bonus_id = int(part)
+        except ValueError:
+            upgraded.append(part)
+            continue
+        mapped = BONUS_ID_MAX_UPGRADE_MAP.get(bonus_id, bonus_id)
+        if mapped != bonus_id:
+            changed = True
+        upgraded.append(str(mapped))
+
+    if not changed:
+        return simc_item
+
+    updated_bonus = "/".join(upgraded)
+    return re.sub(r"\bbonus_id=[0-9/]+", f"bonus_id={updated_bonus}", simc_item, count=1)
+
+
+def _upgrade_equipped_profile(profile: str) -> str:
+    out_lines: list[str] = []
+    for line in profile.splitlines():
+        if "=" not in line:
+            out_lines.append(line)
+            continue
+        key = normalize_slot_name(line.split("=", 1)[0].strip())
+        if key in SLOT_KEYS:
+            out_lines.append(_upgrade_bonus_ids_in_simc_item(line))
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines) + "\n"
+
+
+def _item_id_from_simc(simc_item: str) -> int | None:
+    m = re.search(r"\bid=(\d+)", simc_item)
+    if not m:
+        return None
+    return int(m.group(1))
+
+
+def _candidate_upgrade_score(simc_item: str) -> int:
+    m = re.search(r"\bbonus_id=([0-9/]+)", simc_item)
+    if not m:
+        return 0
+    best = 0
+    for part in m.group(1).split("/"):
+        try:
+            bid = int(part)
+        except ValueError:
+            continue
+        best = max(best, UPGRADE_BONUS_RANK.get(bid, 0))
+    return best
+
+
+def _upgrade_and_reduce_candidates(candidates: dict[str, Any]) -> dict[str, Any]:
+    slots_raw = candidates.get("slots")
+    if not isinstance(slots_raw, dict):
+        return candidates
+
+    upgraded_slots: dict[str, list[dict[str, str]]] = {}
+    for slot, items in slots_raw.items():
+        if not isinstance(items, list):
+            continue
+
+        best_by_id: dict[int, tuple[int, dict[str, str]]] = {}
+        passthrough: list[dict[str, str]] = []
+
+        for item in items:
+            if not isinstance(item, dict) or "simc" not in item:
+                continue
+            simc_item = str(item["simc"])
+            upgraded_simc = _upgrade_bonus_ids_in_simc_item(simc_item)
+
+            updated = dict(item)
+            updated["simc"] = upgraded_simc
+
+            item_id = _item_id_from_simc(upgraded_simc)
+            if item_id is None:
+                passthrough.append(updated)
+                continue
+
+            score = _candidate_upgrade_score(upgraded_simc)
+            current = best_by_id.get(item_id)
+            if current is None or score > current[0]:
+                best_by_id[item_id] = (score, updated)
+
+        reduced = [entry for _, entry in best_by_id.values()]
+        reduced.extend(passthrough)
+        upgraded_slots[slot] = reduced
+
+    transformed = dict(candidates)
+    transformed["slots"] = upgraded_slots
+    return transformed
 
 
 def load_base_profile(path: pathlib.Path) -> str:
@@ -172,8 +398,29 @@ def profile_slots(profile: str) -> set[str]:
     return found
 
 
+def _simc_item_value(raw: str) -> str:
+    """Ensure a simc item value has a leading comma when it starts with bare parameters.
+
+    SimC item syntax: ``slot=<name>,key=val,...`` or ``slot=,key=val,...`` (no name).
+    Candidates JSON stores values like ``id=12345,bonus_id=...`` without the leading
+    comma, which SimC then interprets as a literal item name rather than parameters,
+    silently leaving the slot empty.  This function normalises both old (no comma) and
+    new (already has comma) formats.
+    """
+    v = raw.strip()
+    if not v or v.startswith(","):
+        return v
+    # If the first '=' appears before the first ',', the value starts with a key=param
+    # pair (e.g. "id=..."), not with an item name.  Prepend the required comma.
+    first_eq = v.find("=")
+    first_comma = v.find(",")
+    if first_eq != -1 and (first_comma == -1 or first_eq < first_comma):
+        return "," + v
+    return v
+
+
 def apply_replacements(profile: str, replacements: dict[str, str]) -> str:
-    normalized_replacements = {normalize_slot_name(k): v for k, v in replacements.items()}
+    normalized_replacements = {normalize_slot_name(k): _simc_item_value(v) for k, v in replacements.items()}
     lines = profile.splitlines()
     replaced_keys: set[str] = set()
 
@@ -207,7 +454,10 @@ def generate_scenarios(candidates: dict[str, Any], mode: str, max_scenarios: int
         for slot, items in slots.items():
             for item in items:
                 label = item.get("label", item["simc"])
-                scenarios.append(Scenario(name=f"{slot}: {label}", replacements={slot: item["simc"]}))
+                replacements: dict[str, str] = {slot: item["simc"]}
+                for clear_slot in item.get("clear_slots", []):
+                    replacements[normalize_slot_name(clear_slot)] = ""
+                scenarios.append(Scenario(name=f"{slot}: {label}", replacements=replacements))
         return scenarios[:max_scenarios]
 
     if mode == "cartesian":
@@ -222,6 +472,8 @@ def generate_scenarios(candidates: dict[str, Any], mode: str, max_scenarios: int
             labels: list[str] = []
             for (slot, _), item in zip(active_slots, combo):
                 replacements[slot] = item["simc"]
+                for clear_slot in item.get("clear_slots", []):
+                    replacements[normalize_slot_name(clear_slot)] = ""
                 labels.append(item.get("label", slot))
             scenarios.append(Scenario(name=" + ".join(labels), replacements=replacements))
             if len(scenarios) >= max_scenarios:
@@ -828,9 +1080,14 @@ def run_droptimizer_for_profile(
 ) -> RaiderSummary:
     out_dir.mkdir(parents=True, exist_ok=True)
     base_profile = load_base_profile(profile_path)
+    if config.assume_fully_upgraded_equipped:
+        base_profile = _upgrade_equipped_profile(base_profile)
+
     candidates = load_json(candidates_path)
     if not isinstance(candidates, dict):
         raise ValueError(f"Candidates JSON for '{label}' must be an object.")
+    if config.assume_fully_upgraded_candidates:
+        candidates = _upgrade_and_reduce_candidates(candidates)
 
     existing_slots = profile_slots(base_profile)
     candidate_slots = [normalize_slot_name(slot) for slot in candidates.get("slots", {}).keys()]
@@ -900,6 +1157,10 @@ def run_droptimizer_for_profile(
                     max_scenarios=config.max_scenarios,
                     staged_pruning=config.staged_pruning,
                     staged_threshold=config.staged_threshold,
+                    assume_fully_upgraded_equipped=config.assume_fully_upgraded_equipped,
+                    assume_fully_upgraded_candidates=config.assume_fully_upgraded_candidates,
+                    candidates_by_spec=config.candidates_by_spec,
+                    strict_spec_mapping=config.strict_spec_mapping,
                 )
                 result = run_sim(stage_config, patched_profile, scenario, out_dir)
                 stage_results.append(result)
@@ -967,10 +1228,21 @@ def main() -> int:
         default=None,
         help="Optional Blizzard Armory character URL to import profile from before simming.",
     )
+    parser.add_argument(
+        "--assume-fully-upgraded",
+        action="store_true",
+        help=(
+            "Assume equipped gear and candidates are fully upgraded. "
+            "Normalizes known upgrade bonus_ids to max and keeps best candidate tier per item id."
+        ),
+    )
     args = parser.parse_args()
 
     config_path = pathlib.Path(args.config).resolve()
     config = load_config(config_path)
+    if args.assume_fully_upgraded:
+        config.assume_fully_upgraded_equipped = True
+        config.assume_fully_upgraded_candidates = True
 
     out_dir = pathlib.Path(config.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)

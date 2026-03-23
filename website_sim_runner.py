@@ -15,8 +15,16 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from droptimizer import Config, export_profile_from_armory, load_config, run_droptimizer_for_profile, slugify
-from guild_droptimizer import collect_winners_from_raider_csv, filter_candidates_by_difficulty, merge_item_winners
+from droptimizer import (
+    Config,
+    export_profile_from_armory,
+    extract_profile_class_spec,
+    load_config,
+    run_droptimizer_for_profile,
+    slugify,
+)
+from generate_live_candidates import ensure_generated_candidate_file
+from guild_droptimizer import collect_winners_from_raider_csv, merge_item_winners
 
 
 @dataclass
@@ -121,7 +129,7 @@ def _resolve_runtime_settings(args: argparse.Namespace) -> tuple[str, str]:
             + f"SIM_SITE_BASE_URL_{env_name}/SIM_RUNNER_KEY_{env_name}."
         )
 
-    return base_url, runner_key
+    return str(base_url).strip(), str(runner_key).strip()
 
 
 def _parse_targets(payload: dict[str, Any]) -> TargetsResponse:
@@ -192,6 +200,40 @@ def _normalize_character_filter(value: str) -> str:
     return value.strip().lower()
 
 
+def _resolve_candidates_for_profile(config: Config, config_path: pathlib.Path, profile_path: pathlib.Path) -> pathlib.Path:
+    default_path = pathlib.Path(config.candidates_path).resolve()
+    profile_text = profile_path.read_text(encoding="utf-8")
+    class_name, spec_name = extract_profile_class_spec(profile_text)
+    if class_name and spec_name:
+        exact_key = f"{class_name}:{spec_name}"
+        match = config.candidates_by_spec.get(exact_key)
+        if match and pathlib.Path(match).exists():
+            return pathlib.Path(match).resolve()
+
+        generated_path = ensure_generated_candidate_file(
+            config_path=config_path,
+            spec_key=exact_key,
+            strict=config.strict_spec_mapping,
+        )
+        config.candidates_by_spec[exact_key] = str(generated_path)
+        return generated_path.resolve()
+
+    if class_name:
+        class_match = config.candidates_by_spec.get(class_name)
+        if class_match:
+            return pathlib.Path(class_match).resolve()
+
+    if config.strict_spec_mapping:
+        requested = f"{class_name or 'unknown'}:{spec_name or 'unknown'}"
+        known = ", ".join(sorted(config.candidates_by_spec)) or "none"
+        raise RuntimeError(
+            "No candidates mapping found for "
+            f"{requested}. Available mappings: {known}."
+        )
+
+    return default_path
+
+
 def _call_start(base_url: str, runner_key: str, payload: dict[str, Any]) -> None:
     _request_json("POST", _build_url(base_url, "/api/sim/runs/start"), runner_key, payload)
 
@@ -235,6 +277,7 @@ def _call_results(base_url: str, runner_key: str, payload: dict[str, Any]) -> No
 
 def run_team(
     config: Config,
+    config_path: pathlib.Path,
     base_url: str,
     runner_key: str,
     roster_revision: str,
@@ -266,12 +309,6 @@ def run_team(
     )
 
     try:
-        filtered_candidates_path, _, _ = filter_candidates_by_difficulty(
-            candidates_path=pathlib.Path(config.candidates_path).resolve(),
-            difficulty=team.difficulty,
-            out_dir=out_dir,
-        )
-
         raiders = sorted(
             team.raiders,
             key=lambda r: (
@@ -301,6 +338,8 @@ def run_team(
             print(f"[team {team.team_id}] [{idx}/{len(raiders)}] Simming {label}")
             profile_path = out_dir / "imported_profiles" / f"{slugify(label)}.simc"
             export_profile_from_armory(config, _armory_url(raider), profile_path)
+            filtered_candidates_path = _resolve_candidates_for_profile(config, config_path, profile_path)
+            print(f"[team {team.team_id}] [{idx}/{len(raiders)}] Candidates: {filtered_candidates_path.name}")
 
             raider_out = out_dir / slugify(label)
             summary = run_droptimizer_for_profile(
@@ -425,14 +464,30 @@ def main() -> int:
         default="",
         help="Optional case-insensitive character name filter applied across all teams.",
     )
+    parser.add_argument(
+        "--allow-bulk-run",
+        action="store_true",
+        help="Allow manual bulk target pull/runs without a specific --team-id and --character-name.",
+    )
     args = parser.parse_args()
+
+    requested_character = args.character_name.strip()
+    requested_teams = bool(args.team_id)
+    if not args.allow_bulk_run and (not requested_character or not requested_teams):
+        print(
+            "ERROR: Bulk/manual runs are disabled by default. "
+            "Website-triggered mode requires both --team-id and --character-name."
+        )
+        print("If you intentionally want a bulk run, pass --allow-bulk-run.")
+        return 2
 
     base_url, runner_key = _resolve_runtime_settings(args)
     print(f"Environment: {args.environment}")
     print(f"Site base URL: {base_url}")
 
     try:
-        config = load_config(pathlib.Path(args.config).resolve())
+        config_path = pathlib.Path(args.config).resolve()
+        config = load_config(config_path)
         if args.full_slot_results:
             config.staged_pruning = False
             print("Full slot results mode active: staged pruning disabled.")
@@ -451,8 +506,8 @@ def main() -> int:
             allowed = set(args.team_id)
             teams = [team for team in teams if team.team_id in allowed]
 
-        if args.character_name.strip():
-            requested_name = _normalize_character_filter(args.character_name)
+        if requested_character:
+            requested_name = _normalize_character_filter(requested_character)
             filtered_teams: list[TargetTeam] = []
             for team in teams:
                 matching_raiders = [
@@ -475,7 +530,7 @@ def main() -> int:
                 )
 
             teams = filtered_teams
-            print(f"Character filter active: {args.character_name}")
+            print(f"Character filter active: {requested_character}")
 
         if not teams:
             print("No teams to run.")
@@ -484,6 +539,7 @@ def main() -> int:
         for team in teams:
             run_team(
                 config=config,
+                config_path=config_path,
                 base_url=base_url,
                 runner_key=runner_key,
                 roster_revision=targets.roster_revision,

@@ -1,0 +1,762 @@
+{
+  "slots": {
+    "off_hand": [
+      {
+        "label": "Bulwark of Noble Resolve 263 - The Voidspire - Imperator Averzian",
+        "simc": "id=249275,ilevel=263"
+      },
+      {
+        "label": "Bulwark of Noble Resolve 276 - The Voidspire - Imperator Averzian",
+        "simc": "id=249275,ilevel=276"
+      },
+      {
+        "label": "Bulwark of Noble Resolve 282 - The Voidspire - Imperator Averzian",
+        "simc": "id=249275,ilevel=282"
+      },
+      {
+        "label": "Grimoire of the Eternal Light 263 - The Voidspire - Vorasius",
+        "simc": "id=249276,ilevel=263"
+      },
+      {
+        "label": "Grimoire of the Eternal Light 276 - The Voidspire - Vorasius",
+        "simc": "id=249276,ilevel=276"
+      },
+      {
+        "label": "Grimoire of the Eternal Light 282 - The Voidspire - Vorasius",
+        "simc": "id=249276,ilevel=282"
+      },
+      {
+        "label": "Blade of the Final Twilight 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=263"
+      },
+      {
+        "label": "Blade of the Final Twilight 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=276"
+      },
+      {
+        "label": "Blade of the Final Twilight 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=282"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=263"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=276"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=282"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=263"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=276"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=282"
+      },
+      {
+        "label": "Blade of the Blind Verdict 263 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=263"
+      },
+      {
+        "label": "Blade of the Blind Verdict 276 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=276"
+      },
+      {
+        "label": "Blade of the Blind Verdict 282 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=282"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=263"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=276"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=282"
+      },
+      {
+        "label": "Thalassian Dawnguard 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249921,ilevel=263"
+      },
+      {
+        "label": "Thalassian Dawnguard 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249921,ilevel=276"
+      },
+      {
+        "label": "Thalassian Dawnguard 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249921,ilevel=282"
+      },
+      {
+        "label": "Tome of Alnscorned Regret 263 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249922,ilevel=263"
+      },
+      {
+        "label": "Tome of Alnscorned Regret 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249922,ilevel=276"
+      },
+      {
+        "label": "Tome of Alnscorned Regret 282 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249922,ilevel=282"
+      },
+      {
+        "label": "Hungering Victory 263 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=263"
+      },
+      {
+        "label": "Hungering Victory 276 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=276"
+      },
+      {
+        "label": "Hungering Victory 282 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=282"
+      },
+      {
+        "label": "Arator's Swift Remembrance 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=263"
+      },
+      {
+        "label": "Arator's Swift Remembrance 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=276"
+      },
+      {
+        "label": "Arator's Swift Remembrance 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=282"
+      }
+    ],
+    "main_hand": [
+      {
+        "label": "Alnscorned Spire 263 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249278,ilevel=263",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Alnscorned Spire 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249278,ilevel=276",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Alnscorned Spire 282 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249278,ilevel=282",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Blade of the Final Twilight 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=263"
+      },
+      {
+        "label": "Blade of the Final Twilight 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=276"
+      },
+      {
+        "label": "Blade of the Final Twilight 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249281,ilevel=282"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=263"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=276"
+      },
+      {
+        "label": "Belo'melorn, the Shattered Talon 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249283,ilevel=282"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=263"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=276"
+      },
+      {
+        "label": "Belo'ren's Swift Talon 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249284,ilevel=282"
+      },
+      {
+        "label": "Brazier of the Dissonant Dirge 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249286,ilevel=263",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Brazier of the Dissonant Dirge 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249286,ilevel=276",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Brazier of the Dissonant Dirge 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249286,ilevel=282",
+        "clear_slots": [
+          "off_hand"
+        ]
+      },
+      {
+        "label": "Blade of the Blind Verdict 263 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=263"
+      },
+      {
+        "label": "Blade of the Blind Verdict 276 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=276"
+      },
+      {
+        "label": "Blade of the Blind Verdict 282 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249294,ilevel=282"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=263"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=276"
+      },
+      {
+        "label": "Tormentor's Bladed Fists 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249298,ilevel=282"
+      },
+      {
+        "label": "Hungering Victory 263 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=263"
+      },
+      {
+        "label": "Hungering Victory 276 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=276"
+      },
+      {
+        "label": "Hungering Victory 282 - The Voidspire - Vorasius",
+        "simc": "id=249925,ilevel=282"
+      },
+      {
+        "label": "Arator's Swift Remembrance 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=263"
+      },
+      {
+        "label": "Arator's Swift Remembrance 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=276"
+      },
+      {
+        "label": "Arator's Swift Remembrance 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=260423,ilevel=282"
+      }
+    ],
+    "feet": [
+      {
+        "label": "Slippers of the Midnight Flame 263 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249305,ilevel=263"
+      },
+      {
+        "label": "Slippers of the Midnight Flame 276 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249305,ilevel=276"
+      },
+      {
+        "label": "Slippers of the Midnight Flame 282 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249305,ilevel=282"
+      },
+      {
+        "label": "Dream-Scorched Striders 263 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249373,ilevel=263"
+      },
+      {
+        "label": "Dream-Scorched Striders 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249373,ilevel=276"
+      },
+      {
+        "label": "Dream-Scorched Striders 282 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249373,ilevel=282"
+      }
+    ],
+    "chest": [
+      {
+        "label": "Despotic Raiment 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249308,ilevel=263"
+      },
+      {
+        "label": "Despotic Raiment 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249308,ilevel=276"
+      },
+      {
+        "label": "Despotic Raiment 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249308,ilevel=282"
+      },
+      {
+        "label": "Robes of Endless Oblivion 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249912,ilevel=263"
+      },
+      {
+        "label": "Robes of Endless Oblivion 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249912,ilevel=276"
+      },
+      {
+        "label": "Robes of Endless Oblivion 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249912,ilevel=282"
+      },
+      {
+        "label": "Voidbreaker's Robe 263 - Catalyst - Midnight Season 1",
+        "simc": "id=250063,ilevel=263"
+      },
+      {
+        "label": "Voidbreaker's Robe 276 - Catalyst - Midnight Season 1",
+        "simc": "id=250063,ilevel=276"
+      },
+      {
+        "label": "Voidbreaker's Robe 282 - Catalyst - Midnight Season 1",
+        "simc": "id=250063,ilevel=282"
+      }
+    ],
+    "wrist": [
+      {
+        "label": "Voracious Wristwraps 263 - The Voidspire - Vorasius",
+        "simc": "id=249315,ilevel=263"
+      },
+      {
+        "label": "Voracious Wristwraps 276 - The Voidspire - Vorasius",
+        "simc": "id=249315,ilevel=276"
+      },
+      {
+        "label": "Voracious Wristwraps 282 - The Voidspire - Vorasius",
+        "simc": "id=249315,ilevel=282"
+      }
+    ],
+    "waist": [
+      {
+        "label": "Endless March Waistwrap 263 - The Voidspire - Imperator Averzian",
+        "simc": "id=249319,ilevel=263"
+      },
+      {
+        "label": "Endless March Waistwrap 276 - The Voidspire - Imperator Averzian",
+        "simc": "id=249319,ilevel=276"
+      },
+      {
+        "label": "Endless March Waistwrap 282 - The Voidspire - Imperator Averzian",
+        "simc": "id=249319,ilevel=282"
+      },
+      {
+        "label": "Whisper-Inscribed Sash 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249376,ilevel=263"
+      },
+      {
+        "label": "Whisper-Inscribed Sash 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249376,ilevel=276"
+      },
+      {
+        "label": "Whisper-Inscribed Sash 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249376,ilevel=282"
+      }
+    ],
+    "legs": [
+      {
+        "label": "Leggings of the Devouring Advance 263 - The Voidspire - Imperator Averzian",
+        "simc": "id=249323,ilevel=263"
+      },
+      {
+        "label": "Leggings of the Devouring Advance 276 - The Voidspire - Imperator Averzian",
+        "simc": "id=249323,ilevel=276"
+      },
+      {
+        "label": "Leggings of the Devouring Advance 282 - The Voidspire - Imperator Averzian",
+        "simc": "id=249323,ilevel=282"
+      },
+      {
+        "label": "Voidbreaker's Britches 263 - Catalyst - Midnight Season 1",
+        "simc": "id=250059,ilevel=263"
+      },
+      {
+        "label": "Voidbreaker's Britches 276 - Catalyst - Midnight Season 1",
+        "simc": "id=250059,ilevel=276"
+      },
+      {
+        "label": "Voidbreaker's Britches 282 - Catalyst - Midnight Season 1",
+        "simc": "id=250059,ilevel=282"
+      }
+    ],
+    "shoulders": [
+      {
+        "label": "Echoing Void Mantle 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249328,ilevel=263"
+      },
+      {
+        "label": "Echoing Void Mantle 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249328,ilevel=276"
+      },
+      {
+        "label": "Echoing Void Mantle 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249328,ilevel=282"
+      },
+      {
+        "label": "Voidbreaker's Leyline Nexi 263 - Catalyst - Midnight Season 1",
+        "simc": "id=250058,ilevel=263"
+      },
+      {
+        "label": "Voidbreaker's Leyline Nexi 276 - Catalyst - Midnight Season 1",
+        "simc": "id=250058,ilevel=276"
+      },
+      {
+        "label": "Voidbreaker's Leyline Nexi 282 - Catalyst - Midnight Season 1",
+        "simc": "id=250058,ilevel=282"
+      }
+    ],
+    "head": [
+      {
+        "label": "Gaze of the Unrestrained 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249329,ilevel=263"
+      },
+      {
+        "label": "Gaze of the Unrestrained 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249329,ilevel=276"
+      },
+      {
+        "label": "Gaze of the Unrestrained 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249329,ilevel=282"
+      },
+      {
+        "label": "Voidbreaker's Veil 263 - Catalyst - Midnight Season 1",
+        "simc": "id=250060,ilevel=263"
+      },
+      {
+        "label": "Voidbreaker's Veil 276 - Catalyst - Midnight Season 1",
+        "simc": "id=250060,ilevel=276"
+      },
+      {
+        "label": "Voidbreaker's Veil 282 - Catalyst - Midnight Season 1",
+        "simc": "id=250060,ilevel=282"
+      }
+    ],
+    "hands": [
+      {
+        "label": "War Chaplain's Grips 263 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249330,ilevel=263"
+      },
+      {
+        "label": "War Chaplain's Grips 276 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249330,ilevel=276"
+      },
+      {
+        "label": "War Chaplain's Grips 282 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249330,ilevel=282"
+      },
+      {
+        "label": "Voidbreaker's Gloves 263 - Catalyst - Midnight Season 1",
+        "simc": "id=250061,ilevel=263"
+      },
+      {
+        "label": "Voidbreaker's Gloves 276 - Catalyst - Midnight Season 1",
+        "simc": "id=250061,ilevel=276"
+      },
+      {
+        "label": "Voidbreaker's Gloves 282 - Catalyst - Midnight Season 1",
+        "simc": "id=250061,ilevel=282"
+      }
+    ],
+    "back": [
+      {
+        "label": "Imperator's Banner 263 - The Voidspire - Imperator Averzian",
+        "simc": "id=249335,ilevel=263"
+      },
+      {
+        "label": "Imperator's Banner 276 - The Voidspire - Imperator Averzian",
+        "simc": "id=249335,ilevel=276"
+      },
+      {
+        "label": "Imperator's Banner 282 - The Voidspire - Imperator Averzian",
+        "simc": "id=249335,ilevel=282"
+      },
+      {
+        "label": "Draconic Nullcape 263 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249370,ilevel=263"
+      },
+      {
+        "label": "Draconic Nullcape 276 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249370,ilevel=276"
+      },
+      {
+        "label": "Draconic Nullcape 282 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249370,ilevel=282"
+      }
+    ],
+    "finger1": [
+      {
+        "label": "Signet of the Starved Beast 263 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=263"
+      },
+      {
+        "label": "Signet of the Starved Beast 276 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=276"
+      },
+      {
+        "label": "Signet of the Starved Beast 282 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=282"
+      },
+      {
+        "label": "Bond of Light 263 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=263"
+      },
+      {
+        "label": "Bond of Light 276 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=276"
+      },
+      {
+        "label": "Bond of Light 282 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=282"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=263"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=276"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=282"
+      },
+      {
+        "label": "Eye of Midnight 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=263"
+      },
+      {
+        "label": "Eye of Midnight 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=276"
+      },
+      {
+        "label": "Eye of Midnight 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=282"
+      }
+    ],
+    "finger2": [
+      {
+        "label": "Signet of the Starved Beast 263 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=263"
+      },
+      {
+        "label": "Signet of the Starved Beast 276 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=276"
+      },
+      {
+        "label": "Signet of the Starved Beast 282 - The Voidspire - Vorasius",
+        "simc": "id=249336,ilevel=282"
+      },
+      {
+        "label": "Bond of Light 263 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=263"
+      },
+      {
+        "label": "Bond of Light 276 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=276"
+      },
+      {
+        "label": "Bond of Light 282 - The Voidspire - Lightblinded Vanguard",
+        "simc": "id=249369,ilevel=282"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 263 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=263"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 276 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=276"
+      },
+      {
+        "label": "Sin'dorei Band of Hope 282 - March on Quel'Danas - Belo'ren, Child of Al'ar",
+        "simc": "id=249919,ilevel=282"
+      },
+      {
+        "label": "Eye of Midnight 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=263"
+      },
+      {
+        "label": "Eye of Midnight 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=276"
+      },
+      {
+        "label": "Eye of Midnight 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249920,ilevel=282"
+      }
+    ],
+    "neck": [
+      {
+        "label": "Ribbon of Coiled Malice 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249337,ilevel=263"
+      },
+      {
+        "label": "Ribbon of Coiled Malice 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249337,ilevel=276"
+      },
+      {
+        "label": "Ribbon of Coiled Malice 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249337,ilevel=282"
+      },
+      {
+        "label": "Eternal Voidsong Chain 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249368,ilevel=263"
+      },
+      {
+        "label": "Eternal Voidsong Chain 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249368,ilevel=276"
+      },
+      {
+        "label": "Eternal Voidsong Chain 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249368,ilevel=282"
+      },
+      {
+        "label": "Amulet of the Abyssal Hymn 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=250247,ilevel=263"
+      },
+      {
+        "label": "Amulet of the Abyssal Hymn 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=250247,ilevel=276"
+      },
+      {
+        "label": "Amulet of the Abyssal Hymn 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=250247,ilevel=282"
+      }
+    ],
+    "trinket1": [
+      {
+        "label": "Wraps of Cosmic Madness 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=263"
+      },
+      {
+        "label": "Wraps of Cosmic Madness 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=276"
+      },
+      {
+        "label": "Wraps of Cosmic Madness 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=282"
+      },
+      {
+        "label": "Gaze of the Alnseer 263 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=263"
+      },
+      {
+        "label": "Gaze of the Alnseer 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=276"
+      },
+      {
+        "label": "Gaze of the Alnseer 282 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=282"
+      },
+      {
+        "label": "Vaelgor's Final Stare 263 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=263"
+      },
+      {
+        "label": "Vaelgor's Final Stare 276 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=276"
+      },
+      {
+        "label": "Vaelgor's Final Stare 282 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=282"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=263"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=276"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=282"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=263"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=276"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=282"
+      }
+    ],
+    "trinket2": [
+      {
+        "label": "Wraps of Cosmic Madness 263 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=263"
+      },
+      {
+        "label": "Wraps of Cosmic Madness 276 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=276"
+      },
+      {
+        "label": "Wraps of Cosmic Madness 282 - The Voidspire - Fallen-King Salhadaar",
+        "simc": "id=249340,ilevel=282"
+      },
+      {
+        "label": "Gaze of the Alnseer 263 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=263"
+      },
+      {
+        "label": "Gaze of the Alnseer 276 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=276"
+      },
+      {
+        "label": "Gaze of the Alnseer 282 - The Dreamrift - Chimaerus the Undreamt God",
+        "simc": "id=249343,ilevel=282"
+      },
+      {
+        "label": "Vaelgor's Final Stare 263 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=263"
+      },
+      {
+        "label": "Vaelgor's Final Stare 276 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=276"
+      },
+      {
+        "label": "Vaelgor's Final Stare 282 - The Voidspire - Vaelgor & Ezzorak",
+        "simc": "id=249346,ilevel=282"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 263 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=263"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 276 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=276"
+      },
+      {
+        "label": "Locus-Walker's Ribbon 282 - The Voidspire - Crown of the Cosmos",
+        "simc": "id=249809,ilevel=282"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 263 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=263"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 276 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=276"
+      },
+      {
+        "label": "Shadow of the Empyrean Requiem 282 - March on Quel'Danas - Midnight Falls",
+        "simc": "id=249810,ilevel=282"
+      }
+    ]
+  }
+}

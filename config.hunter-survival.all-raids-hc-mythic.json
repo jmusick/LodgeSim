@@ -1,10 +1,10 @@
 {
   "simc_path": "C:/Users/JD/source/WoWSim/tools/simc/nightly/current/simc.exe",
   "base_profile_path": "C:/Users/JD/source/WoWSim/input/character.simc",
-  "candidates_path": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+  "candidates_path": "C:/Users/JD/source/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
   "raiders_path": null,
   "armory_url": null,
-  "output_dir": "C:/Users/JD/source/WoWSim/results",
+  "output_dir": "C:/Users/JD/source/WoWSim/results/hunter-survival-all-raids-hc-mythic",
   "mode": "single_upgrades",
   "iterations": 15000,
   "threads": 8,
@@ -14,9 +14,7 @@
     "max_time=300",
     "vary_combat_length=0.2"
   ],
-  "max_scenarios": 300,
-  "strict_spec_mapping": false,
-  "candidates_by_spec": {
-    "hunter:survival": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json"
-  }
+  "max_scenarios": 1200,
+  "assume_fully_upgraded_equipped": true,
+  "assume_fully_upgraded_candidates": true
 }

@@ -20,6 +20,64 @@ from flask import Flask, jsonify, request, send_file
 APP_ROOT = pathlib.Path(__file__).resolve().parent
 
 
+def _load_dotenv(path: pathlib.Path) -> None:
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv(APP_ROOT / ".env.simrunner.local")
+
+
+def _site_base_url() -> str:
+    return (
+        os.environ.get("SIM_SITE_BASE_URL_DEV")
+        or os.environ.get("SIM_SITE_BASE_URL")
+        or ""
+    ).rstrip("/")
+
+
+def _runner_key() -> str:
+    return (
+        os.environ.get("SIM_RUNNER_KEY_DEV")
+        or os.environ.get("SIM_RUNNER_KEY")
+        or ""
+    )
+
+
+def _wowsim_app_api_key() -> str:
+    return (os.environ.get("WOWSIM_APP_API_KEY") or "").strip()
+
+
+def _manual_start_enabled() -> bool:
+    raw = (os.environ.get("WOWSIM_ALLOW_MANUAL_START") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _request_is_authorized_website_call() -> bool:
+    expected = _wowsim_app_api_key()
+    if not expected:
+        # If no key is configured, keep behavior permissive for local/dev setups.
+        return True
+    provided = request.headers.get("X-WoWSim-Key", "").strip()
+    return bool(provided) and provided == expected
+
+
+def _website_config(difficulty: str) -> str:
+    if difficulty == "mythic":
+        cfg = os.environ.get("WOWSIM_CONFIG_MYTHIC", "")
+    else:
+        cfg = os.environ.get("WOWSIM_CONFIG_HEROIC", "")
+    return cfg.strip() or default_config_name()
+
+
 @dataclass
 class JobState:
     id: str
@@ -64,7 +122,7 @@ def default_config_name() -> str:
     preferred = [
         "config.guild.json",
         "config.json",
-        "config.beastndesist.all-raids-hc-mythic.json",
+        "config.hunter-survival.all-raids-hc-mythic.json",
     ]
     for name in preferred:
         if name in configs:
@@ -461,6 +519,11 @@ loadConfigs().then(refresh);
 
 @app.post("/api/start")
 def api_start() -> Any:
+    if not _manual_start_enabled():
+        return jsonify({
+            "error": "Manual starts are disabled. Use website launch flow via /api/jobs/start.",
+        }), 403
+
     payload = request.get_json(silent=True) or {}
 
     raw_config = payload.get("config")
@@ -524,6 +587,65 @@ def api_start() -> Any:
     t.start()
 
     return jsonify({"job": _serialize_job(job)})
+
+
+@app.post("/api/jobs/start")
+def api_jobs_start() -> Any:
+    if not _request_is_authorized_website_call():
+        return jsonify({"error": "unauthorized website launch request"}), 401
+
+    payload = request.get_json(silent=True) or {}
+
+    char_name = str(payload.get("char_name", "")).strip()
+    realm_slug = str(payload.get("realm_slug", "")).strip()
+    region = str(payload.get("region", "us")).strip().lower() or "us"
+    site_team_id = payload.get("site_team_id")
+    difficulty = str(payload.get("difficulty", "heroic")).strip().lower()
+    mode = str(payload.get("mode", "site")).strip().lower()
+
+    if not char_name:
+        return jsonify({"error": "char_name is required"}), 400
+    if not realm_slug:
+        return jsonify({"error": "realm_slug is required"}), 400
+    if not isinstance(site_team_id, int) or site_team_id <= 0:
+        return jsonify({"error": "site_team_id must be a positive integer"}), 400
+    if difficulty not in {"heroic", "mythic"}:
+        return jsonify({"error": "difficulty must be heroic or mythic"}), 400
+    if mode != "site":
+        return jsonify({"error": "Only mode=site is supported via the website launcher"}), 400
+
+    base_url = _site_base_url()
+    runner_key = _runner_key()
+    if not base_url or not runner_key:
+        return jsonify({"error": "SIM_SITE_BASE_URL_DEV and SIM_RUNNER_KEY_DEV must be set in .env.simrunner.local"}), 503
+
+    config_name = _website_config(difficulty)
+    if not (APP_ROOT / config_name).exists():
+        return jsonify({"error": f"Config file not found: {config_name}"}), 503
+
+    cmd = [
+        sys.executable, "-u", "website_sim_runner.py",
+        "--config", config_name,
+        "--site-base-url", base_url,
+        "--runner-key", runner_key,
+        "--character-name", char_name,
+        "--team-id", str(site_team_id),
+    ]
+
+    job_id = uuid.uuid4().hex
+    job = JobState(
+        id=job_id,
+        command=cmd,
+        status="queued",
+        started_at=dt.datetime.now().isoformat(timespec="seconds"),
+    )
+    with job_lock:
+        jobs[job_id] = job
+
+    t = threading.Thread(target=_run_job, args=(job_id,), daemon=True)
+    t.start()
+
+    return jsonify({"job_id": job_id})
 
 
 @app.get("/api/configs")

@@ -12,11 +12,9 @@ This project runs SimulationCraft locally in a Droptimizer-style flow:
 - `update-simc.ps1`: Downloads and installs the latest SimulationCraft nightly.
 - `register-update-task.ps1`: Creates a Windows Task Scheduler job for auto-updates.
 - `config.example.json`: Config template.
-- `candidates.example.json`: Candidate item template.
 - `raiders.example.json`: Batch list of raiders to process.
 - `run-nightly.ps1`: Helper that writes each run to a timestamped folder.
-- `convert_raidbots_profileset.py`: Converts Raidbots profileset simc exports to candidates JSON.
-- `merge_candidates.py`: Merges multiple candidates JSON files into one deduplicated pool.
+- `generate_live_candidates.py`: Builds a spec-scoped candidates file directly from Raidbots live static data, without manual Raidbots export files.
 - `guild_droptimizer.py`: Runs guild-wide sims from roster and outputs per-item best recipient.
 
 ## Prerequisites
@@ -29,11 +27,30 @@ This project runs SimulationCraft locally in a Droptimizer-style flow:
 
 1. Run `./update-simc.ps1` to install the newest nightly into `tools/simc/nightly/current`.
 2. Copy `config.example.json` to `config.json` and edit paths.
-2. Create your baseline profile file, for example `input/character.simc`.
-3. Copy `candidates.example.json` to `candidates.json` and update gear options.
-4. Update `config.json` to point to your `candidates.json`.
+3. Create your baseline profile file, for example `input/character.simc`.
+4. Generate live raid loot pools:
+
+```powershell
+python .\generate_live_candidates.py --all-specs --pool-name all-raids-normal-hc-mythic.live --output-dir .\generated\live-candidates --register-config .\config.json --strict-mapping --default-spec hunter:survival
+```
+
 5. Optional for batch mode: copy `raiders.example.json` to `raiders.json` and set `raiders_path` in `config.json`.
 6. Optional for direct Armory import: set `armory_url` in `config.json`.
+
+## Naming Convention
+
+Reusable loot pools should be named by class first, then spec:
+
+- `generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json`
+- `config.hunter-survival.all-raids-hc-mythic.json`
+
+Use config mapping keys in `class:spec` form:
+
+- `hunter:survival`
+- `paladin:holy`
+- `warrior:fury`
+
+The website runner imports each raider's profile, reads `class` and `spec` from the SimC text, and selects the matching candidates file from `candidates_by_spec` when present. If the exact spec mapping is missing or its generated file is absent, the runner now generates that spec pool on demand from Raidbots live data and persists the mapping back to the config.
 
 ## Update SimulationCraft
 
@@ -51,7 +68,7 @@ Force reinstall of the latest file:
 
 ## Candidate Format
 
-`candidates.json` uses this shape:
+Generated candidate files use this shape:
 
 ```json
 {
@@ -69,6 +86,23 @@ Force reinstall of the latest file:
 - `single_upgrades` mode: tests each listed item independently.
 - `cartesian` mode: tests all combinations across listed slots (can explode quickly).
 
+## Per-Spec Candidate Mapping
+
+Configs can define spec-specific loot pools:
+
+```json
+{
+  "candidates_path": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+  "strict_spec_mapping": true,
+  "candidates_by_spec": {
+    "hunter:survival": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+    "paladin:holy": "C:/Projects/WoWSim/generated/live-candidates/candidates.paladin-holy.all-raids-normal-hc-mythic.live.json"
+  }
+}
+```
+
+With `strict_spec_mapping=true`, the website runner fails fast if a raider's class/spec has no configured loot pool. That avoids silently simming the wrong item pool.
+
 ## Run Manually
 
 ```powershell
@@ -84,7 +118,7 @@ python .\droptimizer.py --config .\config.json --raiders .\raiders.json
 Single run directly from Armory URL (imports profile automatically):
 
 ```powershell
-python .\droptimizer.py --config .\config.json --armory-url "https://worldofwarcraft.blizzard.com/en-us/character/us/malganis/beastndesist/"
+python .\droptimizer.py --config .\config.json --armory-url "https://worldofwarcraft.blizzard.com/en-us/character/us/realm/character-name/"
 ```
 
 If `raiders_path` is set in `config.json`, batch mode runs automatically without `--raiders`.
@@ -126,19 +160,19 @@ Guild runs are now single-difficulty only by design. You must choose either
 ### 1) Run guild automation
 
 ```powershell
-python .\guild_droptimizer.py --config .\config.beastndesist.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty mythic
+python .\guild_droptimizer.py --config .\config.hunter-survival.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty mythic
 ```
 
 Optional test run on only the first N level-90 raiders:
 
 ```powershell
-python .\guild_droptimizer.py --config .\config.beastndesist.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty heroic --max-raiders 5
+python .\guild_droptimizer.py --config .\config.hunter-survival.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty heroic --max-raiders 5
 ```
 
 Roster-only dry run (fetch roster and write level-90 CSV without running sims):
 
 ```powershell
-python .\guild_droptimizer.py --config .\config.beastndesist.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty mythic --dry-run
+python .\guild_droptimizer.py --config .\config.hunter-survival.all-raids-hc-mythic.json --guild-url "https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/" --difficulty mythic --dry-run
 ```
 
 ### Output
@@ -235,19 +269,42 @@ The UI lets you:
 - Trigger runs in the background.
 - Watch live progress and logs.
 
-## Raidbots Loot Pool Import
+## Live Loot Pool Generation
 
-Convert a Raidbots Droptimizer export (profileset simc text) into candidates JSON:
-
-```powershell
-python .\convert_raidbots_profileset.py --input .\input\beastndesist_raidbots_heroic.simc --output .\candidates.beastndesist.voidspire-heroic.json
-```
-
-Merge Heroic + Mythic pools:
+Generate and register a single spec pool from Raidbots live data:
 
 ```powershell
-python .\merge_candidates.py --input .\candidates.beastndesist.voidspire-mythic.json .\candidates.beastndesist.voidspire-heroic.json --output .\candidates.beastndesist.voidspire-hc-mythic.json
+python .\generate_live_candidates.py --spec-key hunter:survival --pool-name all-raids-normal-hc-mythic.live --register-config .\config.guild.json --strict-mapping
 ```
+
+Generate and register live candidates for every supported spec in one pass:
+
+```powershell
+python .\generate_live_candidates.py --all-specs --pool-name all-raids-normal-hc-mythic.live --output-dir .\generated\live-candidates --register-config .\config.guild.json --strict-mapping --default-spec hunter:survival
+```
+
+The website runner also uses the same generator on demand when a requested spec has no generated file yet.
+
+This fetches Raidbots static data from the live manifest and builds a candidates file using raid item metadata, source encounters, class restrictions, and spec restrictions.
+
+Current caveats of the live-data generator:
+
+- It generates candidates using `id=...,ilevel=...` rather than Raidbots-export bonus strings.
+- Tier set pieces are included, but Raidbots static data currently surfaces them as Catalyst-sourced items rather than their original raid token boss sources.
+- Since the live data does not provide per-item enchant/gem decisions, the generated candidates are intentionally less opinionated.
+
+## Getting a Profile for a Spec You Do Not Play
+
+You do not need your own character for every spec.
+
+Any representative character of the correct class/spec is enough to generate that spec's Raidbots loot pool:
+
+- A guild member of that spec
+- A public Armory character for that spec
+- A SimC addon export shared by someone who plays it
+- A manually prepared SimC profile, if needed
+
+What matters is the class/spec, not the character's name. Raidbots uses that profile to decide which raid drops belong in the pool for that spec.
 
 or with timestamped output folders:
 
