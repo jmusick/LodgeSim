@@ -849,8 +849,6 @@ class RunnerGui(tk.Tk):
                             queued_jobs.append(job)
                         if status in {"running", "canceling"} and running_job is None:
                             running_job = job
-                        if display_job is None:
-                            display_job = job
                         if not job_id or status in {"completed", "failed", "canceled", "timed_out"}:
                             continue
 
