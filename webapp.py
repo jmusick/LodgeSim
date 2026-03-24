@@ -1703,12 +1703,16 @@ def api_admin_online_start() -> Any:
         return jsonify({"error": "forbidden"}), 403
 
     global runtime_online
+    should_start = False
     with job_cond:
         if not runtime_online:
             runtime_online = True
-            _ensure_worker_started()
-            _ensure_passive_scheduler_started()
+            should_start = True
         job_cond.notify_all()
+
+    if should_start:
+        _ensure_worker_started()
+        _ensure_passive_scheduler_started()
 
     passive_wakeup_event.set()
     return jsonify({"ok": True, "online": True})
