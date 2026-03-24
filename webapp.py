@@ -244,6 +244,7 @@ passive_scheduler_thread: threading.Thread | None = None
 job_queue_seq = 0
 job_seq_lock = threading.Lock()
 passive_enqueued_at: dict[str, int] = {}
+passive_failed_until: dict[str, int] = {}
 runtime_online = False
 passive_batch_id_seq = 0
 passive_current_batch_id: int | None = None
@@ -265,6 +266,7 @@ JOB_TIMEOUT_SECS = 6 * 60 * 60
 PASSIVE_DEFAULT_INTERVAL_SECS = 300
 PASSIVE_DEFAULT_STALE_SECS = 24 * 60 * 60
 PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
+PASSIVE_FAILURE_BACKOFF_SECS = 30 * 60
 PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
 PASSIVE_DEFAULT_FETCH_MAX_TASKS = 1000
 SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
@@ -750,6 +752,7 @@ def _ensure_passive_scheduler_started() -> None:
                     next_batch_id = passive_batch_id_seq + 1
                     skipped_active = 0
                     skipped_cooldown = 0
+                    skipped_failed = 0
                     skipped_bad_cmd = 0
                     for raw_task in tasks:
                         if not isinstance(raw_task, dict):
@@ -769,6 +772,11 @@ def _ensure_passive_scheduler_started() -> None:
                         last_enqueued = passive_enqueued_at.get(task_id, 0)
                         if now_epoch - last_enqueued < PASSIVE_ENQUEUE_COOLDOWN_SECS:
                             skipped_cooldown += 1
+                            continue
+
+                        failed_until = int(passive_failed_until.get(task_id, 0) or 0)
+                        if now_epoch < failed_until:
+                            skipped_failed += 1
                             continue
 
                         cmd = _build_passive_command(raw_task)
@@ -808,6 +816,8 @@ def _ensure_passive_scheduler_started() -> None:
                         print(f"[passive] skipped {skipped_active} task(s) — already active")
                     if skipped_cooldown:
                         print(f"[passive] skipped {skipped_cooldown} task(s) — in cooldown window")
+                    if skipped_failed:
+                        print(f"[passive] skipped {skipped_failed} task(s) — in failure backoff window")
                     if skipped_bad_cmd:
                         print(f"[passive] skipped {skipped_bad_cmd} task(s) — could not build command (check config file and site URL)")
 
@@ -1095,15 +1105,18 @@ def _run_job(job_id: str) -> None:
             with fallback_state_lock:
                 fallback_task_updated_at[cur.task_id] = updated_at
                 _save_fallback_state()
+            passive_failed_until.pop(cur.task_id, None)
             print(f"[passive] task {cur.task_id} marked as completed; fallback updated")
 
         if cur.status in {"failed", "timed_out"} and cur.task_id:
-            # Clear the enqueue cooldown so failed tasks are immediately
-            # eligible for re-queuing on the next passive scheduler poll.
+            # Clear enqueue cooldown so re-queue is controlled exclusively by
+            # failure backoff instead of the 2h enqueue window.
             passive_enqueued_at.pop(cur.task_id, None)
+            backoff_until = int(dt.datetime.now(dt.UTC).timestamp()) + PASSIVE_FAILURE_BACKOFF_SECS
+            passive_failed_until[cur.task_id] = backoff_until
             print(
                 f"[passive] task {cur.task_id} finished with status={cur.status}; "
-                f"cleared cooldown and is eligible for immediate re-queue"
+                f"cleared cooldown and set failure backoff until {backoff_until}"
             )
         
         # Clean up addon profile temp file if it exists
