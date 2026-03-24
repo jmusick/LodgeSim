@@ -160,6 +160,7 @@ class RunnerGui(tk.Tk):
         self._simc_update_in_progress = False
         self._user_intent_online = False
         self._bring_online_in_progress = False
+        self._last_api_connected = False
 
         self.environment = tk.StringVar(value="dev")
         self.dev_pc_host = tk.StringVar(value=self._current_dev_host())
@@ -708,6 +709,22 @@ class RunnerGui(tk.Tk):
             return
         self._do_bring_online()
 
+    def _trigger_passive_wakeup(self) -> None:
+        """Poke the passive scheduler to poll immediately without waiting."""
+        def worker() -> None:
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:5050/api/passive/wakeup",
+                    headers={"Accept": "application/json"},
+                    method="POST",
+                    data=b"{}",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+            except Exception:
+                pass
+        threading.Thread(target=worker, daemon=True).start()
+
     def _do_bring_online(self) -> None:
         self._bring_online_in_progress = True
 
@@ -722,6 +739,7 @@ class RunnerGui(tk.Tk):
                 with urllib.request.urlopen(req, timeout=15):
                     pass
                 self._queue.put("[runner] brought online\n")
+                self._trigger_passive_wakeup()
             except urllib.error.HTTPError as exc:
                 self._queue.put(f"[runner] failed to bring online (HTTP {exc.code})\n")
             except Exception as exc:
@@ -947,6 +965,7 @@ class RunnerGui(tk.Tk):
     def _check_connection_now(self) -> tuple[str, str]:
         base_url, runner_key = self._resolve_api_settings()
         if not base_url or not runner_key:
+            self._last_api_connected = False
             return "not connected", "error"
 
         url = f"{base_url.rstrip('/')}/api/sim/targets"
@@ -964,10 +983,17 @@ class RunnerGui(tk.Tk):
             with _open_url_with_proxy_fallback(req, timeout=10) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 _ = json.loads(raw) if raw.strip() else {}
+                # Connection recovered — if user intends online, nudge passive
+                if not self._last_api_connected and self._user_intent_online:
+                    self._queue.put("[runner] website API reconnected — waking passive scheduler\n")
+                    self._trigger_passive_wakeup()
+                self._last_api_connected = True
                 return "connected", "ok"
         except urllib.error.HTTPError as exc:
+            self._last_api_connected = False
             return f"not connected (HTTP {exc.code})", "error"
         except urllib.error.URLError as exc:
+            self._last_api_connected = False
             reason = str(exc.reason) if exc.reason else str(exc)
             if "timed out" in reason.lower():
                 short = "timeout"
@@ -975,6 +1001,7 @@ class RunnerGui(tk.Tk):
                 short = reason[:40]
             return f"not connected ({short})", "error"
         except Exception as exc:
+            self._last_api_connected = False
             short = str(exc)[:40]
             return f"not connected ({short})", "error"
 

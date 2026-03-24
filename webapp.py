@@ -713,23 +713,34 @@ def _ensure_passive_scheduler_started() -> None:
                         break
                     continue
 
+                # Check for conflicting active jobs. Only hold the lock briefly
+                # for the check — never while sleeping, to avoid starving the
+                # worker thread which also needs job_lock / job_cond.
                 with job_lock:
-                    if _manual_jobs_active_locked():
-                        if _passive_wait(interval):
-                            break
-                        continue
-                    if _passive_jobs_active_locked():
-                        if _passive_wait(interval):
-                            break
-                        continue
+                    blocked_by_manual = _manual_jobs_active_locked()
+                    blocked_by_passive = _passive_jobs_active_locked()
 
-                stale_secs = _passive_startup_stale_secs() if first_poll else _passive_stale_secs()
-                first_poll = False
-                tasks = _fetch_passive_tasks(max_tasks=_passive_fetch_max_tasks(), stale_secs=stale_secs)
-                if not tasks:
+                if blocked_by_manual:
+                    print("[passive] waiting — manual jobs are active")
                     if _passive_wait(interval):
                         break
                     continue
+                if blocked_by_passive:
+                    # Quiet wait while current passive batch is still running.
+                    if _passive_wait(interval):
+                        break
+                    continue
+
+                stale_secs = _passive_startup_stale_secs() if first_poll else _passive_stale_secs()
+                print(f"[passive] polling for stale tasks (max_age={stale_secs}s, max_tasks={_passive_fetch_max_tasks()}) ...")
+                first_poll = False
+                tasks = _fetch_passive_tasks(max_tasks=_passive_fetch_max_tasks(), stale_secs=stale_secs)
+                if not tasks:
+                    print(f"[passive] no stale tasks returned — sleeping {interval}s before next poll")
+                    if _passive_wait(interval):
+                        break
+                    continue
+                print(f"[passive] fetched {len(tasks)} candidate task(s)")
 
                 now_epoch = int(dt.datetime.now(dt.UTC).timestamp())
                 enqueued_any = False
@@ -737,6 +748,9 @@ def _ensure_passive_scheduler_started() -> None:
 
                 with job_cond:
                     next_batch_id = passive_batch_id_seq + 1
+                    skipped_active = 0
+                    skipped_cooldown = 0
+                    skipped_bad_cmd = 0
                     for raw_task in tasks:
                         if not isinstance(raw_task, dict):
                             continue
@@ -749,14 +763,17 @@ def _ensure_passive_scheduler_started() -> None:
                         if not task_id:
                             continue
                         if _has_active_task_locked(task_id):
+                            skipped_active += 1
                             continue
 
                         last_enqueued = passive_enqueued_at.get(task_id, 0)
                         if now_epoch - last_enqueued < PASSIVE_ENQUEUE_COOLDOWN_SECS:
+                            skipped_cooldown += 1
                             continue
 
                         cmd = _build_passive_command(raw_task)
                         if not cmd:
+                            skipped_bad_cmd += 1
                             continue
 
                         job_id = uuid.uuid4().hex
@@ -787,8 +804,17 @@ def _ensure_passive_scheduler_started() -> None:
                         passive_current_batch_started_at = dt.datetime.now().isoformat(timespec="seconds")
                         job_cond.notify_all()
 
+                    if skipped_active:
+                        print(f"[passive] skipped {skipped_active} task(s) — already active")
+                    if skipped_cooldown:
+                        print(f"[passive] skipped {skipped_cooldown} task(s) — in cooldown window")
+                    if skipped_bad_cmd:
+                        print(f"[passive] skipped {skipped_bad_cmd} task(s) — could not build command (check config file and site URL)")
+
                 if enqueued_any:
-                    print("[passive] queued one or more stale background tasks")
+                    print(f"[passive] queued {enqueued_count} background task(s) as batch #{passive_current_batch_id}")
+                else:
+                    print(f"[passive] all {len(tasks)} fetched task(s) were filtered out — sleeping {interval}s")
 
                 if _passive_wait(interval):
                     break
@@ -1675,6 +1701,16 @@ def api_passive_progress() -> Any:
     with job_lock:
         payload = _passive_batch_progress_locked()
     return jsonify(payload)
+
+
+@app.post("/api/passive/wakeup")
+def api_passive_wakeup() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    passive_wakeup_event.set()
+    return jsonify({"ok": True})
 
 
 @app.get("/api/jobs/<job_id>")
