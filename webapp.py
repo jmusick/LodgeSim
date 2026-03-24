@@ -1095,11 +1095,16 @@ def _run_job(job_id: str) -> None:
             with fallback_state_lock:
                 fallback_task_updated_at[cur.task_id] = updated_at
                 _save_fallback_state()
+            print(f"[passive] task {cur.task_id} marked as completed; fallback updated")
 
         if cur.status in {"failed", "timed_out"} and cur.task_id:
             # Clear the enqueue cooldown so failed tasks are immediately
             # eligible for re-queuing on the next passive scheduler poll.
             passive_enqueued_at.pop(cur.task_id, None)
+            print(
+                f"[passive] task {cur.task_id} finished with status={cur.status}; "
+                f"cleared cooldown and is eligible for immediate re-queue"
+            )
         
         # Clean up addon profile temp file if it exists
         if cur.addon_profile_path and pathlib.Path(cur.addon_profile_path).exists():

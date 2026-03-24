@@ -365,7 +365,25 @@ def _call_finish(
 
 
 def _call_results(base_url: str, runner_key: str, payload: dict[str, Any]) -> None:
-    _request_json("POST", _build_url(base_url, "/api/sim/results"), runner_key, payload)
+    run_id = payload.get("run_id", "unknown")
+    site_team_id = payload.get("site_team_id", "unknown")
+    raider_count = len(payload.get("raider_summaries", []))
+    print(
+        f"[results] POSTing results for run {run_id} (team={site_team_id}, raiders={raider_count})"
+    )
+    try:
+        response = _request_json("POST", _build_url(base_url, "/api/sim/results"), runner_key, payload)
+        inserted_raider_summaries = response.get("inserted", {}).get("raider_summaries", 0)
+        inserted_item_winners = response.get("inserted", {}).get("item_winners", 0)
+        duplicate = response.get("duplicate", False)
+        print(
+            f"[results] run {run_id}: success=True, duplicate={duplicate}, "
+            f"inserted_raider_summaries={inserted_raider_summaries}, "
+            f"inserted_item_winners={inserted_item_winners}"
+        )
+    except Exception as exc:
+        print(f"[results] run {run_id}: FAILED — {exc}")
+        raise
 
 
 def run_team(
@@ -751,6 +769,7 @@ def run_single_target_profile(
 
         _call_heartbeat(base_url, runner_key, run_id, team.team_id)
 
+        print(f"[{label}] Posting results to website...")
         _call_results(
             base_url,
             runner_key,
@@ -777,6 +796,7 @@ def run_single_target_profile(
                 "item_winners": [],
             },
         )
+        print(f"[{label}] Results posted successfully.")
 
         _call_finish(base_url, runner_key, run_id, team.team_id, successful=True)
         print(
