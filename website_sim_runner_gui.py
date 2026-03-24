@@ -164,6 +164,7 @@ class RunnerGui(tk.Tk):
         self.api_status = tk.StringVar(value="checking...")
         self.server_status = tk.StringVar(value="checking...")
         self.simc_status = tk.StringVar(value="checking...")
+        self.runner_state = tk.StringVar(value="offline")
         self.job_id = tk.StringVar(value="none")
         self.job_status = tk.StringVar(value="idle")
         self.job_progress = tk.StringVar(value="Waiting for a run to start")
@@ -178,6 +179,8 @@ class RunnerGui(tk.Tk):
         self._simc_dot_canvas: tk.Canvas | None = None
         self._simc_dot_id: int | None = None
         self._simc_check_btn: ttk.Button | None = None
+        self._online_btn: ttk.Button | None = None
+        self._offline_btn: ttk.Button | None = None
         self.queue_selection = tk.StringVar(value="")
         self.queue_count = tk.StringVar(value="Queued: 0")
         self._queue_combo: ttk.Combobox | None = None
@@ -192,6 +195,7 @@ class RunnerGui(tk.Tk):
         self._build_ui()
         self._ensure_api_server_started()
         self._apply_environment_to_local_app()
+        self._refresh_runtime_state()
         self._refresh_server_status()
         self._start_simc_auto_update_check()
         self.after(100, self._drain_output)
@@ -203,7 +207,7 @@ class RunnerGui(tk.Tk):
         root = ttk.Frame(self, padding=12)
         root.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Label(root, text="Website Sim Runner", font=("Segoe UI", 14, "bold"))
+        header = ttk.Label(root, text="WoWSim Website Runner", font=("Segoe UI", 14, "bold"))
         header.pack(anchor=tk.W)
 
         controls = ttk.LabelFrame(root, text="Run Options", padding=10)
@@ -236,10 +240,15 @@ class RunnerGui(tk.Tk):
         button_row = ttk.Frame(root)
         button_row.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(
-            button_row,
-            text="Background tasks start automatically while the app is open.",
-        ).pack(side=tk.LEFT)
+        runner_row = ttk.Frame(button_row)
+        runner_row.pack(side=tk.LEFT, anchor=tk.W)
+        ttk.Label(runner_row, text="Runner:").pack(side=tk.LEFT)
+        ttk.Label(runner_row, textvariable=self.runner_state).pack(side=tk.LEFT, padx=(6, 10))
+        self._online_btn = ttk.Button(runner_row, text="Bring Online", command=self._bring_online)
+        self._online_btn.pack(side=tk.LEFT)
+        self._offline_btn = ttk.Button(runner_row, text="Bring Offline", command=self._bring_offline)
+        self._offline_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self._offline_btn.configure(state=tk.DISABLED)
 
         status_col = ttk.Frame(button_row)
         status_col.pack(side=tk.RIGHT, anchor=tk.W)
@@ -600,8 +609,78 @@ class RunnerGui(tk.Tk):
         except Exception as exc:
             self._queue.put(f"[env] failed to set environment ({env_value}): {exc}\n")
 
+    def _set_runner_state(self, online: bool) -> None:
+        self.runner_state.set("online" if online else "offline")
+        if self._online_btn is not None:
+            self._online_btn.configure(state=tk.DISABLED if online else tk.NORMAL)
+        if self._offline_btn is not None:
+            self._offline_btn.configure(state=tk.NORMAL if online else tk.DISABLED)
+
+    def _refresh_runtime_state(self) -> None:
+        def worker() -> None:
+            online = False
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:5050/api/admin/runtime-state",
+                    headers={"Accept": "application/json"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                    data = json.loads(raw) if raw.strip() else {}
+                    online = bool(data.get("online", False))
+            except Exception:
+                online = False
+
+            self.after(0, lambda: self._set_runner_state(online))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _bring_online(self) -> None:
+        def worker() -> None:
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:5050/api/admin/online-start",
+                    headers={"Accept": "application/json", "Content-Type": "application/json"},
+                    method="POST",
+                    data=b"{}",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                self._queue.put("[runner] brought online\n")
+            except urllib.error.HTTPError as exc:
+                self._queue.put(f"[runner] failed to bring online (HTTP {exc.code})\n")
+            except Exception as exc:
+                self._queue.put(f"[runner] failed to bring online: {exc}\n")
+            finally:
+                self._refresh_runtime_state()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _bring_offline(self) -> None:
+        def worker() -> None:
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:5050/api/admin/online-stop",
+                    headers={"Accept": "application/json", "Content-Type": "application/json"},
+                    method="POST",
+                    data=b"{}",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                self._queue.put("[runner] brought offline\n")
+            except urllib.error.HTTPError as exc:
+                self._queue.put(f"[runner] failed to bring offline (HTTP {exc.code})\n")
+            except Exception as exc:
+                self._queue.put(f"[runner] failed to bring offline: {exc}\n")
+            finally:
+                self._refresh_runtime_state()
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _schedule_connection_check(self) -> None:
         self._check_connection_async()
+        self._refresh_runtime_state()
         self.after(30000, self._schedule_connection_check)
 
     def _refresh_server_status(self) -> None:

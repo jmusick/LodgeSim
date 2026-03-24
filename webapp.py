@@ -1028,7 +1028,7 @@ def index() -> str:
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>WoWSim Guild Runner</title>
+    <title>WoWSim Website Runner</title>
   <style>
     :root{--bg:#0d1117;--panel:#161b22;--ink:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--ok:#3fb950;--bad:#f85149;}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,system-ui,sans-serif}
@@ -1060,7 +1060,7 @@ def index() -> str:
 <body>
 <div class=\"wrap\">
     <div class=\"card\">
-        <h1>WoWSim Guild Runner</h1>
+        <h1>WoWSim Website Runner</h1>
         <div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px\">
             <div>
                 <strong>Runner Status:</strong>
