@@ -838,6 +838,10 @@ def _terminate_process_tree(proc: subprocess.Popen[str], force: bool = True) -> 
         if force:
             cmd.append("/F")
         subprocess.run(cmd, capture_output=True, text=True, check=False)
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
         return
 
     try:
@@ -845,6 +849,7 @@ def _terminate_process_tree(proc: subprocess.Popen[str], force: bool = True) -> 
             proc.kill()
         else:
             proc.terminate()
+        proc.wait(timeout=5)
     except Exception:
         pass
 

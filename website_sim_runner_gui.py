@@ -799,6 +799,10 @@ class RunnerGui(tk.Tk):
                 text=True,
                 check=False,
             )
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
             return
 
         try:
@@ -831,8 +835,16 @@ class RunnerGui(tk.Tk):
                         text=True,
                         check=False,
                     )
+                    try:
+                        self._simc_update_proc.wait(timeout=5)
+                    except Exception:
+                        pass
                 else:
                     self._simc_update_proc.terminate()
+                    try:
+                        self._simc_update_proc.wait(timeout=5)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
