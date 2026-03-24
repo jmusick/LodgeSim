@@ -151,8 +151,8 @@ class RunnerGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("WoWSim Website Runner")
-        self.geometry("920x620")
-        self.minsize(760, 500)
+        self.geometry("920x820")
+        self.minsize(760, 640)
 
         self._api_proc: subprocess.Popen[str] | None = None
         self._simc_update_proc: subprocess.Popen[str] | None = None
@@ -681,6 +681,11 @@ class RunnerGui(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _bring_online(self) -> None:
+        if self._online_btn is not None:
+            self._online_btn.configure(state=tk.DISABLED)
+        if self._offline_btn is not None:
+            self._offline_btn.configure(state=tk.DISABLED)
+
         def worker() -> None:
             try:
                 req = urllib.request.Request(
@@ -689,7 +694,7 @@ class RunnerGui(tk.Tk):
                     method="POST",
                     data=b"{}",
                 )
-                with urllib.request.urlopen(req, timeout=5):
+                with urllib.request.urlopen(req, timeout=15):
                     pass
                 self._queue.put("[runner] brought online\n")
             except urllib.error.HTTPError as exc:
@@ -702,6 +707,11 @@ class RunnerGui(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _bring_offline(self) -> None:
+        if self._online_btn is not None:
+            self._online_btn.configure(state=tk.DISABLED)
+        if self._offline_btn is not None:
+            self._offline_btn.configure(state=tk.DISABLED)
+
         def worker() -> None:
             try:
                 req = urllib.request.Request(
@@ -710,7 +720,7 @@ class RunnerGui(tk.Tk):
                     method="POST",
                     data=b"{}",
                 )
-                with urllib.request.urlopen(req, timeout=5):
+                with urllib.request.urlopen(req, timeout=15):
                     pass
                 self._queue.put("[runner] brought offline\n")
             except urllib.error.HTTPError as exc:
@@ -777,7 +787,7 @@ class RunnerGui(tk.Tk):
                     import logging
                     log = logging.getLogger('werkzeug')
                     log.setLevel(logging.ERROR)
-                    flask_app.run(host='0.0.0.0', port=5050, debug=False, use_reloader=False)
+                    flask_app.run(host='0.0.0.0', port=5050, debug=False, use_reloader=False, threaded=True)
                 
                 self._api_proc = threading.Thread(target=run_flask, daemon=True)
                 self._api_proc.start()
