@@ -158,6 +158,8 @@ class RunnerGui(tk.Tk):
         self._simc_update_proc: subprocess.Popen[str] | None = None
         self._queue: queue.Queue[str] = queue.Queue()
         self._simc_update_in_progress = False
+        self._user_intent_online = False
+        self._bring_online_in_progress = False
 
         self.environment = tk.StringVar(value="dev")
         self.dev_pc_host = tk.StringVar(value=self._current_dev_host())
@@ -662,6 +664,7 @@ class RunnerGui(tk.Tk):
 
     def _refresh_runtime_state(self) -> None:
         def worker() -> None:
+            got_response = False
             online = False
             try:
                 req = urllib.request.Request(
@@ -669,22 +672,44 @@ class RunnerGui(tk.Tk):
                     headers={"Accept": "application/json"},
                     method="GET",
                 )
-                with urllib.request.urlopen(req, timeout=3) as resp:
+                with urllib.request.urlopen(req, timeout=5) as resp:
                     raw = resp.read().decode("utf-8", errors="replace")
                     data = json.loads(raw) if raw.strip() else {}
                     online = bool(data.get("online", False))
+                    got_response = True
             except Exception:
-                online = False
+                pass
 
-            self.after(0, lambda: self._set_runner_state(online))
+            # Only update state when we got a definitive response from Flask.
+            # If Flask is transiently busy/unreachable, keep current UI state.
+            if got_response:
+                self.after(0, lambda: self._on_runtime_state_response(online))
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _on_runtime_state_response(self, online: bool) -> None:
+        self._set_runner_state(online)
+        # Auto-reconnect: if user wants online but backend says offline, retry.
+        if self._user_intent_online and not online and not self._bring_online_in_progress:
+            self._queue.put("[runner] connection lost — retrying bring online...\n")
+            self._retry_bring_online()
+
     def _bring_online(self) -> None:
+        self._user_intent_online = True
         if self._online_btn is not None:
             self._online_btn.configure(state=tk.DISABLED)
         if self._offline_btn is not None:
             self._offline_btn.configure(state=tk.DISABLED)
+        self._do_bring_online()
+
+    def _retry_bring_online(self) -> None:
+        """Internal auto-retry; only fires when user intent is still online."""
+        if not self._user_intent_online or self._bring_online_in_progress:
+            return
+        self._do_bring_online()
+
+    def _do_bring_online(self) -> None:
+        self._bring_online_in_progress = True
 
         def worker() -> None:
             try:
@@ -702,11 +727,13 @@ class RunnerGui(tk.Tk):
             except Exception as exc:
                 self._queue.put(f"[runner] failed to bring online: {exc}\n")
             finally:
+                self._bring_online_in_progress = False
                 self._refresh_runtime_state()
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _bring_offline(self) -> None:
+        self._user_intent_online = False
         if self._online_btn is not None:
             self._online_btn.configure(state=tk.DISABLED)
         if self._offline_btn is not None:
