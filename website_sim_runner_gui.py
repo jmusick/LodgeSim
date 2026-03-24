@@ -171,6 +171,9 @@ class RunnerGui(tk.Tk):
         self.job_detail = tk.StringVar(value="-")
         self.job_last_output = tk.StringVar(value="-")
         self.job_progress_pct = tk.IntVar(value=0)
+        self.passive_batch_summary = tk.StringVar(value="Passive sims: idle")
+        self.passive_batch_detail = tk.StringVar(value="Queued 0 | Running 0 | Done 0/0")
+        self.passive_batch_pct = tk.IntVar(value=0)
 
         self._server_dot_canvas: tk.Canvas | None = None
         self._server_dot_id: int | None = None
@@ -333,6 +336,23 @@ class RunnerGui(tk.Tk):
         self._run_now_btn.pack(side=tk.LEFT)
         self._run_now_btn.configure(state=tk.DISABLED)
 
+        passive_row_1 = ttk.Frame(queue_frame)
+        passive_row_1.pack(fill=tk.X, pady=(8, 2))
+        ttk.Label(passive_row_1, textvariable=self.passive_batch_summary).pack(side=tk.LEFT, anchor=tk.W)
+
+        self.passive_progress_bar = ttk.Progressbar(
+            queue_frame,
+            orient=tk.HORIZONTAL,
+            mode="determinate",
+            maximum=100,
+            variable=self.passive_batch_pct,
+        )
+        self.passive_progress_bar.pack(fill=tk.X, pady=(0, 2))
+
+        passive_row_2 = ttk.Frame(queue_frame)
+        passive_row_2.pack(fill=tk.X)
+        ttk.Label(passive_row_2, textvariable=self.passive_batch_detail).pack(side=tk.LEFT, anchor=tk.W)
+
         output_frame = ttk.LabelFrame(root, text="Console", padding=8)
         output_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -459,6 +479,29 @@ class RunnerGui(tk.Tk):
     def _refresh_run_button_state(self) -> None:
         if self._simc_check_btn is not None:
             self._simc_check_btn.configure(state=tk.DISABLED if self._simc_update_in_progress else tk.NORMAL)
+
+    def _set_passive_progress_panel(self, payload: dict[str, object] | None) -> None:
+        if not payload:
+            self.passive_batch_summary.set("Passive sims: idle")
+            self.passive_batch_detail.set("Queued 0 | Running 0 | Done 0/0")
+            self.passive_batch_pct.set(0)
+            return
+
+        total = int(payload.get("total") or 0)
+        queued = int(payload.get("queued") or 0)
+        running = int(payload.get("running") or 0)
+        finished = int(payload.get("finished") or 0)
+        percent = int(payload.get("percent") or 0)
+
+        if total <= 0:
+            self.passive_batch_summary.set("Passive sims: idle")
+            self.passive_batch_detail.set("Queued 0 | Running 0 | Done 0/0")
+            self.passive_batch_pct.set(0)
+            return
+
+        self.passive_batch_summary.set(f"Passive sims: {finished}/{total} complete ({percent}%)")
+        self.passive_batch_detail.set(f"Queued {queued} | Running {running} | Done {finished}/{total}")
+        self.passive_batch_pct.set(max(0, min(100, percent)))
 
     def _simc_auto_update_enabled(self) -> bool:
         raw = (os.getenv("WOWSIM_AUTO_UPDATE_SIMC_ON_LAUNCH") or "1").strip().lower()
@@ -937,6 +980,7 @@ class RunnerGui(tk.Tk):
                     queued_jobs: list[dict[str, object]] = []
                     running_job: dict[str, object] | None = None
                     display_job: dict[str, object] | None = None
+                    passive_progress: dict[str, object] | None = None
 
                     for job in jobs_list:
                         if not isinstance(job, dict):
@@ -968,9 +1012,24 @@ class RunnerGui(tk.Tk):
                     elif queued_jobs:
                         display_job = queued_jobs[0]
 
+                    try:
+                        progress_req = urllib.request.Request(
+                            "http://127.0.0.1:5050/api/passive/progress",
+                            headers={"Accept": "application/json"},
+                            method="GET",
+                        )
+                        with urllib.request.urlopen(progress_req, timeout=3) as progress_resp:
+                            progress_raw = progress_resp.read().decode("utf-8", errors="replace")
+                            parsed = json.loads(progress_raw) if progress_raw.strip() else {}
+                            if isinstance(parsed, dict):
+                                passive_progress = parsed
+                    except Exception:
+                        passive_progress = None
+
                     queued_jobs.sort(key=lambda j: int(j.get("queue_position") or 999999))
                     self.after(0, lambda: self._set_job_panel(display_job))
                     self.after(0, lambda: self._update_queue_panel(queued_jobs))
+                    self.after(0, lambda: self._set_passive_progress_panel(passive_progress))
 
             except Exception:
                 pass

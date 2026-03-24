@@ -232,6 +232,7 @@ class JobState:
     queue_seq: int = 0
     source: str = "manual"
     task_id: str | None = None
+    passive_batch_id: int | None = None
 
 
 jobs: dict[str, JobState] = {}
@@ -244,6 +245,10 @@ job_queue_seq = 0
 job_seq_lock = threading.Lock()
 passive_enqueued_at: dict[str, int] = {}
 runtime_online = False
+passive_batch_id_seq = 0
+passive_current_batch_id: int | None = None
+passive_current_batch_total = 0
+passive_current_batch_started_at: str | None = None
 
 
 RAIDER_START_RE = re.compile(
@@ -261,7 +266,7 @@ PASSIVE_DEFAULT_INTERVAL_SECS = 300
 PASSIVE_DEFAULT_STALE_SECS = 24 * 60 * 60
 PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
 PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
-PASSIVE_FETCH_MAX_TASKS = 100
+PASSIVE_DEFAULT_FETCH_MAX_TASKS = 1000
 SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
@@ -358,6 +363,15 @@ def _passive_stale_secs() -> int:
     return max(3600, min(7 * 24 * 60 * 60, value))
 
 
+def _passive_fetch_max_tasks() -> int:
+    raw = (os.environ.get("WOWSIM_PASSIVE_FETCH_MAX_TASKS") or "").strip()
+    try:
+        value = int(raw) if raw else PASSIVE_DEFAULT_FETCH_MAX_TASKS
+    except ValueError:
+        value = PASSIVE_DEFAULT_FETCH_MAX_TASKS
+    return max(10, min(5000, value))
+
+
 def _passive_startup_stale_secs() -> int:
     """Stale threshold used only for the first passive poll after app startup.
 
@@ -378,6 +392,74 @@ def _manual_jobs_active_locked() -> bool:
         if job.status in {"queued", "running", "canceling"}:
             return True
     return False
+
+
+def _passive_jobs_active_locked() -> bool:
+    for job in jobs.values():
+        if job.source != "passive-single-target":
+            continue
+        if job.status in {"queued", "running", "canceling"}:
+            return True
+    return False
+
+
+def _passive_batch_progress_locked() -> dict[str, Any]:
+    if passive_current_batch_id is None or passive_current_batch_total <= 0:
+        return {
+            "active": False,
+            "batch_id": None,
+            "total": 0,
+            "queued": 0,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "canceled": 0,
+            "timed_out": 0,
+            "finished": 0,
+            "percent": 0,
+            "started_at": None,
+        }
+
+    queued = 0
+    running = 0
+    completed = 0
+    failed = 0
+    canceled = 0
+    timed_out = 0
+
+    for job in jobs.values():
+        if job.passive_batch_id != passive_current_batch_id:
+            continue
+        if job.status == "queued":
+            queued += 1
+        elif job.status in {"running", "canceling"}:
+            running += 1
+        elif job.status == "completed":
+            completed += 1
+        elif job.status == "failed":
+            failed += 1
+        elif job.status == "canceled":
+            canceled += 1
+        elif job.status == "timed_out":
+            timed_out += 1
+
+    finished = completed + failed + canceled + timed_out
+    total = passive_current_batch_total
+    percent = int((finished / total) * 100) if total > 0 else 0
+    return {
+        "active": queued > 0 or running > 0,
+        "batch_id": passive_current_batch_id,
+        "total": total,
+        "queued": queued,
+        "running": running,
+        "completed": completed,
+        "failed": failed,
+        "canceled": canceled,
+        "timed_out": timed_out,
+        "finished": finished,
+        "percent": percent,
+        "started_at": passive_current_batch_started_at,
+    }
 
 
 def _has_active_task_locked(task_id: str) -> bool:
@@ -614,6 +696,11 @@ def _ensure_passive_scheduler_started() -> None:
             return
 
         def passive_loop() -> None:
+            global passive_batch_id_seq
+            global passive_current_batch_id
+            global passive_current_batch_total
+            global passive_current_batch_started_at
+
             first_poll = True
             while not shutdown_event.is_set():
                 interval = _passive_interval_secs()
@@ -631,10 +718,14 @@ def _ensure_passive_scheduler_started() -> None:
                         if _passive_wait(interval):
                             break
                         continue
+                    if _passive_jobs_active_locked():
+                        if _passive_wait(interval):
+                            break
+                        continue
 
                 stale_secs = _passive_startup_stale_secs() if first_poll else _passive_stale_secs()
                 first_poll = False
-                tasks = _fetch_passive_tasks(max_tasks=PASSIVE_FETCH_MAX_TASKS, stale_secs=stale_secs)
+                tasks = _fetch_passive_tasks(max_tasks=_passive_fetch_max_tasks(), stale_secs=stale_secs)
                 if not tasks:
                     if _passive_wait(interval):
                         break
@@ -642,8 +733,10 @@ def _ensure_passive_scheduler_started() -> None:
 
                 now_epoch = int(dt.datetime.now(dt.UTC).timestamp())
                 enqueued_any = False
+                enqueued_count = 0
 
                 with job_cond:
+                    next_batch_id = passive_batch_id_seq + 1
                     for raw_task in tasks:
                         if not isinstance(raw_task, dict):
                             continue
@@ -680,12 +773,18 @@ def _ensure_passive_scheduler_started() -> None:
                                 else "passive-droptimizer"
                             ),
                             task_id=task_id,
+                            passive_batch_id=next_batch_id,
                         )
                         jobs[job_id] = job
                         passive_enqueued_at[task_id] = now_epoch
                         enqueued_any = True
+                        enqueued_count += 1
 
                     if enqueued_any:
+                        passive_batch_id_seq = next_batch_id
+                        passive_current_batch_id = next_batch_id
+                        passive_current_batch_total = enqueued_count
+                        passive_current_batch_started_at = dt.datetime.now().isoformat(timespec="seconds")
                         job_cond.notify_all()
 
                 if enqueued_any:
@@ -1569,6 +1668,13 @@ def api_jobs() -> Any:
 
     data.sort(key=sort_key)
     return jsonify(data)
+
+
+@app.get("/api/passive/progress")
+def api_passive_progress() -> Any:
+    with job_lock:
+        payload = _passive_batch_progress_locked()
+    return jsonify(payload)
 
 
 @app.get("/api/jobs/<job_id>")
