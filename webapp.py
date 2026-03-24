@@ -998,7 +998,7 @@ def _run_job(job_id: str) -> None:
     proc = subprocess.Popen(
         job.command,
         cwd=str(WOWSIM_ROOT),
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

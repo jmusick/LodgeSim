@@ -640,7 +640,7 @@ def parse_armory_url(armory_url: str) -> tuple[str, str, str]:
 
     region = tail[0].lower()
     realm = tail[1].lower()
-    name = tail[2].lower()
+    name = urllib.parse.unquote(tail[2]).lower()
     return region, realm, name
 
 
@@ -663,6 +663,8 @@ def export_profile_from_armory(
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         **_windows_subprocess_kwargs(),
     )
@@ -698,6 +700,8 @@ def run_sim(config: Config, profile_text: str, scenario: Scenario, out_dir: path
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             **_windows_subprocess_kwargs(),
         )

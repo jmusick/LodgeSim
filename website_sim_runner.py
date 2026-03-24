@@ -81,11 +81,11 @@ def utc_now() -> str:
 
 def _enable_line_buffering() -> None:
     try:
-        sys.stdout.reconfigure(line_buffering=True)
+        sys.stdout.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
     except Exception:
         pass
     try:
-        sys.stderr.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
     except Exception:
         pass
 
