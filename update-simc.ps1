@@ -80,7 +80,7 @@ Rename-Item -Path $tempCurrent -NewName "current"
 
 $workspaceRoot = (Resolve-Path ".").Path
 $configPath = Join-Path $workspaceRoot "config.json"
-$simcPath = Join-Path $workspaceRoot "tools" "simc" "nightly" "current" "simc.exe"
+$simcPath = Join-Path -Path $workspaceRoot -ChildPath "tools\simc\nightly\current\simc.exe"
 
 if (Test-Path $configPath) {
   try {
