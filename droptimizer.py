@@ -126,6 +126,9 @@ PROFILE_TOKEN_ALIASES = {
     "deathknight": "death_knight",
     "demonhunter": "demon_hunter",
     "beastmastery": "beast_mastery",
+    # Midnight compatibility: until Raidbots exposes a dedicated Devourer
+    # spec mapping in this pipeline, reuse Havoc candidate generation.
+    "devourer": "havoc",
 }
 
 
