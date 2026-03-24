@@ -260,7 +260,7 @@ class RunnerGui(tk.Tk):
         self._server_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
         self._server_dot_id = self._server_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
         ttk.Label(server_row, text="Sim Client API Server:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(server_row, textvariable=self.server_status, width=18, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(server_row, textvariable=self.server_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
 
         api_row = ttk.Frame(status_col)
         api_row.grid(row=1, column=0, sticky="w")
@@ -268,7 +268,7 @@ class RunnerGui(tk.Tk):
         self._api_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
         self._api_dot_id = self._api_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
         ttk.Label(api_row, text="Website API:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(api_row, textvariable=self.api_status, width=18, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(api_row, textvariable=self.api_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
 
         simc_row = ttk.Frame(status_col)
         simc_row.grid(row=2, column=0, sticky="w")
@@ -276,7 +276,7 @@ class RunnerGui(tk.Tk):
         self._simc_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
         self._simc_dot_id = self._simc_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
         ttk.Label(simc_row, text="SimC Auto-Update:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(simc_row, textvariable=self.simc_status, width=18, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(simc_row, textvariable=self.simc_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
         self._simc_check_btn = ttk.Button(simc_row, text="Check Now", command=self._start_simc_auto_update_check, width=10)
         self._simc_check_btn.grid(row=0, column=3, padx=(4, 0), sticky="w")
 
@@ -877,7 +877,10 @@ class RunnerGui(tk.Tk):
             return f"not connected (HTTP {exc.code})", "error"
         except urllib.error.URLError as exc:
             reason = str(exc.reason) if exc.reason else str(exc)
-            short = reason[:40]
+            if "timed out" in reason.lower():
+                short = "timeout"
+            else:
+                short = reason[:40]
             return f"not connected ({short})", "error"
         except Exception as exc:
             short = str(exc)[:40]
