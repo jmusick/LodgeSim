@@ -778,15 +778,17 @@ def run_single_target_profile(
             baseline_dps = summary.baseline_dps
             top_scenario = summary.best_scenario
             top_dps = summary.best_dps
-        except RuntimeError as exc:
+        except Exception as exc:
             err = str(exc)
             unsupported_spec = "Unsupported spec key:" in err
             missing_mapping = "No candidates mapping found for" in err
-            if not (unsupported_spec or missing_mapping):
+            scenario_failure = "SimulationCraft failed for scenario" in err
+            invalid_players = "No active players in sim" in err
+            if not (unsupported_spec or missing_mapping or scenario_failure or invalid_players):
                 raise
 
             print(
-                f"[{label}] Candidates unavailable for this spec ({err}). "
+                f"[{label}] Single-target candidate/scenario failure ({err}). "
                 "Falling back to baseline-only single-target sim."
             )
             raider_out_dir.mkdir(parents=True, exist_ok=True)
