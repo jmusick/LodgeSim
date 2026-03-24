@@ -260,6 +260,7 @@ PASSIVE_DEFAULT_INTERVAL_SECS = 300
 PASSIVE_DEFAULT_STALE_SECS = 24 * 60 * 60
 PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
 PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
+PASSIVE_FETCH_MAX_TASKS = 100
 SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
@@ -619,7 +620,7 @@ def _ensure_passive_scheduler_started() -> None:
 
                 stale_secs = _passive_startup_stale_secs() if first_poll else _passive_stale_secs()
                 first_poll = False
-                tasks = _fetch_passive_tasks(max_tasks=10, stale_secs=stale_secs)
+                tasks = _fetch_passive_tasks(max_tasks=PASSIVE_FETCH_MAX_TASKS, stale_secs=stale_secs)
                 if not tasks:
                     if _passive_wait(interval):
                         break
