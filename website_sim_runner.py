@@ -19,10 +19,13 @@ from typing import Any
 
 from droptimizer import (
     Config,
+    Scenario,
     export_profile_from_armory,
     extract_profile_class_spec,
+    load_base_profile,
     load_config,
     run_droptimizer_for_profile,
+    run_sim,
     slugify,
 )
 from generate_live_candidates import DEFAULT_RAID_IDS, ensure_generated_candidate_file
@@ -753,19 +756,50 @@ def run_single_target_profile(
         profile_path = out_dir / "imported_profiles" / f"{slugify(label)}.simc"
         export_profile_from_armory(config, _armory_url(raider), profile_path)
 
-        candidates_path = _resolve_candidates_for_profile(
-            config,
-            config_path,
-            profile_path,
-        )
+        raider_out_dir = out_dir / slugify(label)
+        baseline_dps: float
+        top_scenario: str
+        top_dps: float
 
-        summary = run_droptimizer_for_profile(
-            config=_single_target_config(config),
-            profile_path=profile_path,
-            candidates_path=candidates_path,
-            out_dir=out_dir / slugify(label),
-            label=label,
-        )
+        try:
+            candidates_path = _resolve_candidates_for_profile(
+                config,
+                config_path,
+                profile_path,
+            )
+
+            summary = run_droptimizer_for_profile(
+                config=_single_target_config(config),
+                profile_path=profile_path,
+                candidates_path=candidates_path,
+                out_dir=raider_out_dir,
+                label=label,
+            )
+            baseline_dps = summary.baseline_dps
+            top_scenario = summary.best_scenario
+            top_dps = summary.best_dps
+        except RuntimeError as exc:
+            err = str(exc)
+            unsupported_spec = "Unsupported spec key:" in err
+            missing_mapping = "No candidates mapping found for" in err
+            if not (unsupported_spec or missing_mapping):
+                raise
+
+            print(
+                f"[{label}] Candidates unavailable for this spec ({err}). "
+                "Falling back to baseline-only single-target sim."
+            )
+            raider_out_dir.mkdir(parents=True, exist_ok=True)
+            base_profile = load_base_profile(profile_path)
+            baseline = run_sim(
+                _single_target_config(config),
+                base_profile,
+                Scenario(name="baseline", replacements={}),
+                raider_out_dir,
+            )
+            baseline_dps = baseline.dps
+            top_scenario = "baseline"
+            top_dps = baseline.dps
 
         _call_heartbeat(base_url, runner_key, run_id, team.team_id)
 
@@ -787,10 +821,10 @@ def run_single_target_profile(
                 "raider_summaries": [
                     {
                         "blizzard_char_id": raider.blizzard_char_id,
-                        "baseline_dps": summary.baseline_dps,
-                        "top_scenario": summary.best_scenario,
-                        "top_dps": summary.best_dps,
-                        "gain_dps": summary.best_dps - summary.baseline_dps,
+                        "baseline_dps": baseline_dps,
+                        "top_scenario": top_scenario,
+                        "top_dps": top_dps,
+                        "gain_dps": top_dps - baseline_dps,
                     }
                 ],
                 "item_winners": [],
@@ -801,7 +835,7 @@ def run_single_target_profile(
         _call_finish(base_url, runner_key, run_id, team.team_id, successful=True)
         print(
             f"[team {team.team_id}] Completed single-target run {run_id}: "
-            f"baseline={summary.baseline_dps:.2f}"
+            f"baseline={baseline_dps:.2f}"
         )
     except Exception as exc:
         _call_finish(base_url, runner_key, run_id, team.team_id, successful=False, error_message=str(exc))
