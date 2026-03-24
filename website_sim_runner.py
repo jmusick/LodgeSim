@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import ipaddress
 import json
 import os
 import pathlib
@@ -93,16 +94,41 @@ SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 
 
 def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+    parsed = urllib.parse.urlparse(req.full_url)
+    host = (parsed.hostname or "").strip().lower().strip("[]")
+    prefer_direct = False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        prefer_direct = True
+    elif host and "." not in host:
+        prefer_direct = True
+    else:
+        try:
+            addr = ipaddress.ip_address(host)
+            prefer_direct = addr.is_private or addr.is_loopback or addr.is_link_local
+        except ValueError:
+            prefer_direct = False
+
+    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    if prefer_direct:
+        try:
+            return direct_opener.open(req, timeout=timeout)
+        except Exception:
+            pass
+
     try:
         return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {403, 407} and not prefer_direct:
+            return direct_opener.open(req, timeout=timeout)
+        raise
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)
         # WinError 10061 here is commonly caused by a dead local proxy.
-        if getattr(reason, "winerror", None) != 10061:
+        if getattr(reason, "winerror", None) != 10061 and not prefer_direct:
             raise
 
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        return opener.open(req, timeout=timeout)
+        return direct_opener.open(req, timeout=timeout)
 
 
 def _request_json(

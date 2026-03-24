@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import pathlib
 import queue
@@ -14,6 +15,7 @@ import threading
 import time
 import tkinter as tk
 import urllib.error
+import urllib.parse
 import urllib.request
 from tkinter import ttk
 
@@ -82,17 +84,48 @@ WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
 SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
 
 
+def _is_local_or_private_host(host: str) -> bool:
+    normalized = (host or "").strip().lower().strip("[]")
+    if not normalized:
+        return False
+    if normalized in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    # Single-label hostnames (for example, Ark-Prime) are typically LAN hosts.
+    if "." not in normalized:
+        return True
+    try:
+        addr = ipaddress.ip_address(normalized)
+        return addr.is_private or addr.is_loopback or addr.is_link_local
+    except ValueError:
+        return False
+
+
 def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+    parsed = urllib.parse.urlparse(req.full_url)
+    host = parsed.hostname or ""
+    prefer_direct = _is_local_or_private_host(host)
+    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    if prefer_direct:
+        try:
+            return direct_opener.open(req, timeout=timeout)
+        except Exception:
+            pass
+
     try:
         return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        # Corporate/system proxies often return 403/407 for local hostnames.
+        if exc.code in {403, 407} and not prefer_direct:
+            return direct_opener.open(req, timeout=timeout)
+        raise
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)
         # WinError 10061 here is commonly caused by a dead local proxy.
-        if getattr(reason, "winerror", None) != 10061:
+        if getattr(reason, "winerror", None) != 10061 and not prefer_direct:
             raise
 
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        return opener.open(req, timeout=timeout)
+        return direct_opener.open(req, timeout=timeout)
 
 
 def _windows_subprocess_kwargs() -> dict[str, object]:
@@ -127,6 +160,7 @@ class RunnerGui(tk.Tk):
         self._simc_update_in_progress = False
 
         self.environment = tk.StringVar(value="dev")
+        self.dev_pc_host = tk.StringVar(value=self._current_dev_host())
         self.api_status = tk.StringVar(value="checking...")
         self.server_status = tk.StringVar(value="checking...")
         self.simc_status = tk.StringVar(value="checking...")
@@ -192,6 +226,12 @@ class RunnerGui(tk.Tk):
             variable=self.environment,
             command=self._on_environment_change,
         ).pack(side=tk.LEFT)
+
+        dev_host_row = ttk.Frame(controls)
+        dev_host_row.pack(fill=tk.X, pady=4)
+        ttk.Label(dev_host_row, text="Dev PC Name:", width=18).pack(side=tk.LEFT)
+        ttk.Entry(dev_host_row, textvariable=self.dev_pc_host).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(dev_host_row, text="Apply", command=self._apply_dev_host_setting).pack(side=tk.LEFT, padx=(8, 0))
 
         button_row = ttk.Frame(root)
         button_row.pack(fill=tk.X, pady=(0, 10))
@@ -486,6 +526,56 @@ class RunnerGui(tk.Tk):
         self._apply_environment_to_local_app()
         self._check_connection_async()
 
+    def _current_dev_host(self) -> str:
+        raw = (os.getenv("SIM_SITE_BASE_URL_DEV") or "").strip()
+        if not raw:
+            return "localhost"
+        try:
+            parsed = urllib.parse.urlparse(raw)
+            host = (parsed.hostname or "").strip()
+            return host or "localhost"
+        except Exception:
+            return "localhost"
+
+    def _apply_dev_host_setting(self) -> None:
+        requested_host = (self.dev_pc_host.get() or "").strip()
+        if not requested_host:
+            self._queue.put("[env] Dev PC name is required\n")
+            return
+
+        if "://" in requested_host:
+            try:
+                requested_host = (urllib.parse.urlparse(requested_host).hostname or "").strip()
+            except Exception:
+                requested_host = ""
+
+        if not requested_host:
+            self._queue.put("[env] Invalid Dev PC name\n")
+            return
+
+        try:
+            body = json.dumps({"host": requested_host}).encode("utf-8")
+            req = urllib.request.Request(
+                "http://127.0.0.1:5050/api/admin/settings/dev-host",
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                method="POST",
+                data=body,
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw.strip() else {}
+                resolved_url = str(data.get("site_base_url_dev") or "").strip()
+                if resolved_url:
+                    os.environ["SIM_SITE_BASE_URL_DEV"] = resolved_url
+                self.dev_pc_host.set(str(data.get("host") or requested_host))
+                self._queue.put(f"[env] dev host set to {self.dev_pc_host.get()}\n")
+                self._set_api_status("checking...", "checking")
+                self._check_connection_async()
+        except urllib.error.HTTPError as exc:
+            self._queue.put(f"[env] failed to set dev host (HTTP {exc.code})\n")
+        except Exception as exc:
+            self._queue.put(f"[env] failed to set dev host: {exc}\n")
+
     def _apply_environment_to_local_app(self) -> None:
         env_value = (self.environment.get() or "dev").strip().lower()
         if env_value not in {"dev", "prod"}:
@@ -561,7 +651,7 @@ class RunnerGui(tk.Tk):
                     import logging
                     log = logging.getLogger('werkzeug')
                     log.setLevel(logging.ERROR)
-                    flask_app.run(host='127.0.0.1', port=5050, debug=False, use_reloader=False)
+                    flask_app.run(host='0.0.0.0', port=5050, debug=False, use_reloader=False)
                 
                 self._api_proc = threading.Thread(target=run_flask, daemon=True)
                 self._api_proc.start()
@@ -579,6 +669,10 @@ class RunnerGui(tk.Tk):
             return
         
         # Fallback: try subprocess if Flask not directly available
+        if getattr(sys, "frozen", False):
+            self._set_server_status("embedded API unavailable", "error")
+            return
+
         if not WEBAPP_SCRIPT.exists():
             self._set_server_status(f"missing {WEBAPP_SCRIPT.name}", "error")
             return

@@ -11,7 +11,7 @@ $PythonExe = Join-Path $ScriptDir ".venv\Scripts\python.exe"
 $GuiScript = Join-Path $ScriptDir "website_sim_runner_gui.py"
 $OutputDir = Join-Path $ScriptDir "dist"
 $BuildDir = Join-Path $ScriptDir "build"
-$SpecFile = Join-Path $ScriptDir "website_sim_runner_gui.spec"
+$SpecFile = Join-Path $ScriptDir "WoWSim Website Runner.spec"
 
 if (-not (Test-Path $PythonExe)) {
     Write-Error "Python executable not found at: $PythonExe"

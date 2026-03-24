@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import ipaddress
 import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -88,6 +90,65 @@ active_environment_lock = threading.Lock()
 active_environment = (os.environ.get("WOWSIM_ENV") or "dev").strip().lower()
 if active_environment not in {"dev", "prod"}:
     active_environment = "dev"
+
+
+def _extract_host_from_base_url(base_url: str) -> str:
+    raw = (base_url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(raw)
+    except Exception:
+        return ""
+    return (parsed.hostname or "").strip()
+
+
+def _compose_dev_base_url(host: str) -> str:
+    cleaned = (host or "").strip()
+    if not cleaned:
+        return ""
+    # Normalize accidental URL input down to host.
+    if "://" in cleaned:
+        try:
+            cleaned = urllib.parse.urlparse(cleaned).hostname or ""
+        except Exception:
+            cleaned = ""
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return ""
+    return f"http://{cleaned}:4321"
+
+
+def _persist_env_setting(key: str, value: str) -> None:
+    env_path = WOWSIM_ROOT / ".env.simrunner.local"
+    lines: list[str] = []
+    if env_path.exists():
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            lines = []
+
+    replacement = f"{key}={value}"
+    updated = False
+    out_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#") or "=" not in stripped:
+            out_lines.append(line)
+            continue
+        current_key, _, _ = stripped.partition("=")
+        if current_key.strip() == key:
+            out_lines.append(replacement)
+            updated = True
+        else:
+            out_lines.append(line)
+
+    if not updated:
+        if out_lines and out_lines[-1].strip() != "":
+            out_lines.append("")
+        out_lines.append(replacement)
+
+    env_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
 
 def _get_active_environment() -> str:
@@ -318,16 +379,41 @@ def _has_active_task_locked(task_id: str) -> bool:
 
 
 def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
+    parsed = urllib.parse.urlparse(req.full_url)
+    host = (parsed.hostname or "").strip().lower().strip("[]")
+    prefer_direct = False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        prefer_direct = True
+    elif host and "." not in host:
+        prefer_direct = True
+    else:
+        try:
+            addr = ipaddress.ip_address(host)
+            prefer_direct = addr.is_private or addr.is_loopback or addr.is_link_local
+        except ValueError:
+            prefer_direct = False
+
+    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    if prefer_direct:
+        try:
+            return direct_opener.open(req, timeout=timeout)
+        except Exception:
+            pass
+
     try:
         return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {403, 407} and not prefer_direct:
+            return direct_opener.open(req, timeout=timeout)
+        raise
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)
         # WinError 10061 here is commonly caused by a dead local proxy.
-        if getattr(reason, "winerror", None) != 10061:
+        if getattr(reason, "winerror", None) != 10061 and not prefer_direct:
             raise
 
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        return opener.open(req, timeout=timeout)
+        return direct_opener.open(req, timeout=timeout)
 
 
 def _passive_wait(interval: int) -> bool:
@@ -494,16 +580,20 @@ def _build_passive_command(task: dict[str, Any]) -> list[str] | None:
 
     mode = "single_target" if task_type == "single_target" else "site"
 
-    return _build_runner_command(
-        "--config", config_name,
-        "--site-base-url", base_url,
-        "--runner-key", runner_key,
-        "--character-name", char_name,
-        "--team-id", str(team_id),
-        "--sim-raid", sim_raid,
-        "--sim-difficulty", sim_difficulty,
-        "--mode", mode,
-    )
+    try:
+        return _build_runner_command(
+            "--config", config_name,
+            "--site-base-url", base_url,
+            "--runner-key", runner_key,
+            "--character-name", char_name,
+            "--team-id", str(team_id),
+            "--sim-raid", sim_raid,
+            "--sim-difficulty", sim_difficulty,
+            "--mode", mode,
+        )
+    except Exception as exc:
+        print(f"[passive] failed to build runner command: {exc}")
+        return None
 
 
 def _ensure_passive_scheduler_started() -> None:
@@ -621,17 +711,66 @@ def list_config_files() -> list[str]:
 
 def _build_runner_command(*args: str) -> list[str]:
     runner_script = WOWSIM_ROOT / "website_sim_runner.py"
-    if getattr(sys, "frozen", False):
-        preferred_python = os.environ.get("WOWSIM_RUNNER_PYTHON", "").strip()
-        if preferred_python and pathlib.Path(preferred_python).exists() and runner_script.exists():
-            return [preferred_python, str(runner_script), *args]
 
-        venv_python = WOWSIM_ROOT / ".venv" / "Scripts" / "python.exe"
-        if venv_python.exists() and runner_script.exists():
-            return [str(venv_python), str(runner_script), *args]
+    if not runner_script.exists():
+        if getattr(sys, "frozen", False):
+            # In frozen mode the runner is bundled inside the EXE itself.
+            # Call the EXE with --run-website-sim so it routes to the embedded runner.
+            return [sys.executable, "--run-website-sim", *args]
+        raise RuntimeError(f"Missing runner script: {runner_script}")
 
-        return [sys.executable, "--run-website-sim", *args]
-    return [sys.executable, str(runner_script), *args]
+    if not getattr(sys, "frozen", False):
+        return [sys.executable, str(runner_script), *args]
+
+    preferred_python = os.environ.get("WOWSIM_RUNNER_PYTHON", "").strip()
+    if preferred_python and pathlib.Path(preferred_python).exists():
+        return [preferred_python, str(runner_script), *args]
+
+    venv_python = WOWSIM_ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        return [str(venv_python), str(runner_script), *args]
+
+    path_python = shutil.which("python")
+    if path_python:
+        return [path_python, str(runner_script), *args]
+
+    path_py = shutil.which("py")
+    if path_py:
+        return [path_py, "-3", str(runner_script), *args]
+
+    raise RuntimeError(
+        "No Python interpreter available to run website_sim_runner.py in frozen mode. "
+        "Install Python or set WOWSIM_RUNNER_PYTHON to a valid python.exe path."
+    )
+
+
+def _build_python_script_command(script_path: pathlib.Path, *script_args: str) -> list[str]:
+    if not script_path.exists():
+        raise RuntimeError(f"Missing script: {script_path}")
+
+    if not getattr(sys, "frozen", False):
+        return [sys.executable, str(script_path), *script_args]
+
+    preferred_python = os.environ.get("WOWSIM_RUNNER_PYTHON", "").strip()
+    if preferred_python and pathlib.Path(preferred_python).exists():
+        return [preferred_python, str(script_path), *script_args]
+
+    venv_python = WOWSIM_ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        return [str(venv_python), str(script_path), *script_args]
+
+    path_python = shutil.which("python")
+    if path_python:
+        return [path_python, str(script_path), *script_args]
+
+    path_py = shutil.which("py")
+    if path_py:
+        return [path_py, "-3", str(script_path), *script_args]
+
+    raise RuntimeError(
+        f"No Python interpreter available to run {script_path.name} in frozen mode. "
+        "Install Python or set WOWSIM_RUNNER_PYTHON to a valid python.exe path."
+    )
 
 
 def _windows_subprocess_kwargs() -> dict[str, Any]:
@@ -1135,23 +1274,24 @@ def api_start() -> Any:
             "default_config": default_config_name(),
         }), 400
 
-    cmd = [
-        sys.executable,
-        "-u",
-        "guild_droptimizer.py",
-        "--config",
-        config,
-        "--guild-url",
-        guild_url,
-        "--difficulty",
-        difficulty,
-        "--level",
-        str(level),
-        "--locale",
-        locale,
-        "--parallel-raiders",
-        str(parallel_raiders),
-    ]
+    try:
+        cmd = _build_python_script_command(
+            WOWSIM_ROOT / "guild_droptimizer.py",
+            "--config",
+            config,
+            "--guild-url",
+            guild_url,
+            "--difficulty",
+            difficulty,
+            "--level",
+            str(level),
+            "--locale",
+            locale,
+            "--parallel-raiders",
+            str(parallel_raiders),
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 503
     if max_raiders > 0:
         cmd.extend(["--max-raiders", str(max_raiders)])
     if dry_run:
@@ -1439,6 +1579,34 @@ def api_admin_environment() -> Any:
     })
 
 
+@app.post("/api/admin/settings/dev-host")
+def api_admin_settings_dev_host() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    requested_host = str(payload.get("host") or "").strip()
+    if not requested_host:
+        return jsonify({"error": "host is required"}), 400
+
+    dev_base_url = _compose_dev_base_url(requested_host)
+    if not dev_base_url:
+        return jsonify({"error": "invalid host"}), 400
+
+    os.environ["SIM_SITE_BASE_URL_DEV"] = dev_base_url
+    try:
+        _persist_env_setting("SIM_SITE_BASE_URL_DEV", dev_base_url)
+    except Exception as exc:
+        return jsonify({"error": f"failed to persist setting: {exc}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "host": _extract_host_from_base_url(dev_base_url),
+        "site_base_url_dev": dev_base_url,
+    })
+
+
 @app.get("/api/jobs/<job_id>/report/<kind>")
 def api_job_report(job_id: str, kind: str) -> Any:
     if kind not in {"csv", "md"}:
@@ -1470,4 +1638,4 @@ def api_job_report(job_id: str, kind: str) -> Any:
 
 if __name__ == "__main__":
     _ensure_worker_started()
-    app.run(host="127.0.0.1", port=5050, debug=False)
+    app.run(host="0.0.0.0", port=5050, debug=False)
