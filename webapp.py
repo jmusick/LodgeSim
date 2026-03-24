@@ -243,6 +243,7 @@ passive_scheduler_thread: threading.Thread | None = None
 job_queue_seq = 0
 job_seq_lock = threading.Lock()
 passive_enqueued_at: dict[str, int] = {}
+runtime_online = False
 
 
 RAIDER_START_RE = re.compile(
@@ -323,6 +324,15 @@ def _queued_jobs_sorted_locked() -> list[JobState]:
     queued = [job for job in jobs.values() if job.status == "queued"]
     queued.sort(key=lambda j: (-j.priority, j.queue_seq, j.started_at))
     return queued
+
+
+def _runtime_online_locked() -> bool:
+    return runtime_online
+
+
+def _runtime_online() -> bool:
+    with job_lock:
+        return _runtime_online_locked()
 
 
 def _passive_enabled() -> bool:
@@ -607,6 +617,10 @@ def _ensure_passive_scheduler_started() -> None:
             first_poll = True
             while not shutdown_event.is_set():
                 interval = _passive_interval_secs()
+                if not _runtime_online():
+                    if _passive_wait(interval):
+                        break
+                    continue
                 if not _passive_enabled():
                     if _passive_wait(interval):
                         break
@@ -692,6 +706,9 @@ def _ensure_worker_started() -> None:
                     while True:
                         if shutdown_event.is_set():
                             return
+                        if not _runtime_online_locked():
+                            job_cond.wait(timeout=1.0)
+                            continue
                         queued = _queued_jobs_sorted_locked()
                         if queued:
                             next_job = queued[0]
@@ -1002,8 +1019,6 @@ def _serialize_job(job: JobState) -> dict[str, Any]:
 
 
 app = Flask(__name__)
-_ensure_worker_started()
-_ensure_passive_scheduler_started()
 
 
 @app.get("/")
@@ -1046,6 +1061,16 @@ def index() -> str:
 <div class=\"wrap\">
     <div class=\"card\">
         <h1>WoWSim Guild Runner</h1>
+        <div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px\">
+            <div>
+                <strong>Runner Status:</strong>
+                <span id=\"onlineBadge\" class=\"pill canceled\" style=\"margin-left:6px\">offline</span>
+            </div>
+            <div style=\"display:flex;align-items:center;gap:8px\">
+                <button id=\"bringOnlineBtn\" onclick=\"bringOnline()\">Bring Online</button>
+                <button id=\"bringOfflineBtn\" onclick=\"bringOffline()\" disabled>Bring Offline</button>
+            </div>
+        </div>
         <h2>Start a run</h2>
         <div class=\"grid\">
             <div><label>Guild URL</label><input id=\"guildUrl\" value=\"https://worldofwarcraft.blizzard.com/en-us/guild/us/illidan/hidden-lodge/\" /></div>
@@ -1074,7 +1099,7 @@ def index() -> str:
             </div>
             <div></div>
             <div></div>
-            <div style=\"display:flex;align-items:end\"><button id=\"startBtn\" onclick=\"startRun()\">Start Run</button></div>
+            <div style=\"display:flex;align-items:end\"><button id=\"startBtn\" onclick=\"startRun()\" disabled>Start Run</button></div>
         </div>
     </div>
 
@@ -1096,6 +1121,7 @@ let selectedJob = null;
 let autoConfig = null;
 let followLog = true;
 let refreshTimer = null;
+let runtimeOnline = false;
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'canceling']);
 
 function boolVal(v){return String(v).trim().toLowerCase()==='true';}
@@ -1106,8 +1132,83 @@ async function loadConfigs(){
     autoConfig = data.default_config || null;
 }
 
+function setRuntimeOnlineState(isOnline){
+    runtimeOnline = !!isOnline;
+    const badge = document.getElementById('onlineBadge');
+    const btn = document.getElementById('bringOnlineBtn');
+    const offlineBtn = document.getElementById('bringOfflineBtn');
+    const startBtn = document.getElementById('startBtn');
+
+    if(runtimeOnline){
+        badge.textContent = 'online';
+        badge.className = 'pill completed';
+        btn.disabled = true;
+        btn.textContent = 'Online';
+        offlineBtn.disabled = false;
+        startBtn.disabled = false;
+    } else {
+        badge.textContent = 'offline';
+        badge.className = 'pill canceled';
+        btn.disabled = false;
+        btn.textContent = 'Bring Online';
+        offlineBtn.disabled = true;
+        startBtn.disabled = true;
+    }
+}
+
+async function refreshRuntimeState(){
+    const r = await fetch('/api/admin/runtime-state');
+    const data = await r.json();
+    if(r.ok){
+        setRuntimeOnlineState(!!data.online);
+    }
+}
+
+async function bringOnline(){
+    const btn = document.getElementById('bringOnlineBtn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    try {
+        const r = await fetch('/api/admin/online-start', { method: 'POST' });
+        const data = await r.json();
+        if(!r.ok){
+            throw new Error(data.error || 'Failed to bring runner online');
+        }
+        setRuntimeOnlineState(true);
+    } catch (err){
+        const msg = (err && err.message) ? err.message : String(err);
+        alert(msg);
+        btn.disabled = false;
+        btn.textContent = 'Bring Online';
+    }
+}
+
+async function bringOffline(){
+    const btn = document.getElementById('bringOfflineBtn');
+    btn.disabled = true;
+    btn.textContent = 'Stopping...';
+    try {
+        const r = await fetch('/api/admin/online-stop', { method: 'POST' });
+        const data = await r.json();
+        if(!r.ok){
+            throw new Error(data.error || 'Failed to bring runner offline');
+        }
+        setRuntimeOnlineState(false);
+    } catch (err){
+        const msg = (err && err.message) ? err.message : String(err);
+        alert(msg);
+        btn.disabled = false;
+    } finally {
+        btn.textContent = 'Bring Offline';
+    }
+}
+
 async function startRun(){
     try {
+        if(!runtimeOnline){
+            alert('Runner is offline. Click Bring Online first.');
+            return;
+        }
         if(!autoConfig){
             await loadConfigs();
         }
@@ -1237,7 +1338,7 @@ document.getElementById('logView').addEventListener('scroll', () => {
     followLog = distanceFromBottom < 24;
 });
 
-loadConfigs().then(refresh);
+loadConfigs().then(refreshRuntimeState).then(refresh);
 </script>
 </body>
 </html>"""
@@ -1249,6 +1350,9 @@ def api_start() -> Any:
         return jsonify({
             "error": "Manual starts are disabled. Use website launch flow via /api/jobs/start.",
         }), 403
+
+    if not _runtime_online():
+        return jsonify({"error": "runner is offline; click Bring Online first"}), 503
 
     payload = request.get_json(silent=True) or {}
 
@@ -1323,6 +1427,9 @@ def api_start() -> Any:
 def api_jobs_start() -> Any:
     if not _request_is_authorized_website_call():
         return jsonify({"error": "unauthorized website launch request"}), 401
+
+    if not _runtime_online():
+        return jsonify({"error": "runner is offline"}), 503
 
     payload = request.get_json(silent=True) or {}
 
@@ -1580,6 +1687,47 @@ def api_admin_environment() -> Any:
     })
 
 
+@app.get("/api/admin/runtime-state")
+def api_admin_runtime_state() -> Any:
+    return jsonify({
+        "online": _runtime_online(),
+        "environment": _get_active_environment(),
+        "site_base_url": _site_base_url(),
+    })
+
+
+@app.post("/api/admin/online-start")
+def api_admin_online_start() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    global runtime_online
+    with job_cond:
+        if not runtime_online:
+            runtime_online = True
+            _ensure_worker_started()
+            _ensure_passive_scheduler_started()
+        job_cond.notify_all()
+
+    passive_wakeup_event.set()
+    return jsonify({"ok": True, "online": True})
+
+
+@app.post("/api/admin/online-stop")
+def api_admin_online_stop() -> Any:
+    remote = (request.remote_addr or "").strip()
+    if remote not in {"127.0.0.1", "::1"}:
+        return jsonify({"error": "forbidden"}), 403
+
+    global runtime_online
+    with job_cond:
+        runtime_online = False
+        job_cond.notify_all()
+
+    return jsonify({"ok": True, "online": False})
+
+
 @app.post("/api/admin/settings/dev-host")
 def api_admin_settings_dev_host() -> Any:
     remote = (request.remote_addr or "").strip()
@@ -1638,5 +1786,4 @@ def api_job_report(job_id: str, kind: str) -> Any:
 
 
 if __name__ == "__main__":
-    _ensure_worker_started()
     app.run(host="0.0.0.0", port=5050, debug=False)

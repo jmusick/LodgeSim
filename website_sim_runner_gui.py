@@ -327,7 +327,10 @@ class RunnerGui(tk.Tk):
         output_frame.pack(fill=tk.BOTH, expand=True)
 
         self.output = tk.Text(output_frame, wrap=tk.CHAR, font=("Consolas", 10))
-        self.output.pack(fill=tk.BOTH, expand=True)
+        output_scroll = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output.yview)
+        self.output.configure(yscrollcommand=output_scroll.set)
+        self.output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        output_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _append(self, line: str) -> None:
         self.output.insert(tk.END, line)
