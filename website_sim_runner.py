@@ -434,7 +434,7 @@ def run_team(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1",
+            "runner_version": "wowsim-website-runner-v1.1",
         },
     )
 
@@ -540,7 +540,7 @@ def run_team(
                 "sim_raid_label": sim_raid_label,
                 "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1",
+                "runner_version": "wowsim-website-runner-v1.1",
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
             },
@@ -602,7 +602,7 @@ def run_addon_profile(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1",
+            "runner_version": "wowsim-website-runner-v1.1",
         },
     )
 
@@ -675,7 +675,7 @@ def run_addon_profile(
                 "sim_raid_label": sim_raid_label,
                 "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1",
+                "runner_version": "wowsim-website-runner-v1.1",
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
             },
@@ -748,7 +748,7 @@ def run_single_target_profile(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1-single-target",
+            "runner_version": "wowsim-website-runner-v1.1-single-target",
         },
     )
 
@@ -819,7 +819,7 @@ def run_single_target_profile(
                 "sim_raid_label": "Single Target",
                 "sim_difficulty": None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1-single-target",
+                "runner_version": "wowsim-website-runner-v1.1-single-target",
                 "raider_summaries": [
                     {
                         "blizzard_char_id": raider.blizzard_char_id,
