@@ -28,7 +28,7 @@ APP_ROOT = pathlib.Path(__file__).resolve().parent
 
 
 def _find_wowsim_root() -> pathlib.Path:
-    """Find the WoWSim root directory, searching in multiple locations."""
+    """Find the LodgeSim root directory, searching in multiple locations."""
     locations: list[pathlib.Path] = []
 
     # In frozen mode (__file__ points to a temp extraction dir), prefer the
@@ -51,7 +51,7 @@ def _find_wowsim_root() -> pathlib.Path:
     ])
 
     for loc in locations:
-        # Check for marker files that indicate this is the WoWSim root
+        # Check for marker files that indicate this is the LodgeSim root
         if (
             (loc / ".env.simrunner.local").exists()
             or (loc / ".env.simrunner.local.example").exists()
@@ -197,7 +197,7 @@ def _request_is_authorized_website_call() -> bool:
     if not expected:
         # If no key is configured, keep behavior permissive for local/dev setups.
         return True
-    provided = request.headers.get("X-WoWSim-Key", "").strip()
+    provided = request.headers.get("X-LodgeSim-Key", "").strip()
     return bool(provided) and provided == expected
 
 
@@ -269,7 +269,7 @@ PASSIVE_ENQUEUE_COOLDOWN_SECS = 2 * 60 * 60
 PASSIVE_FAILURE_BACKOFF_SECS = 30 * 60
 PASSIVE_ENDPOINT_404_BACKOFF_SECS = 30 * 60
 PASSIVE_DEFAULT_FETCH_MAX_TASKS = 1000
-SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
+SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) LodgeSimRunner/1.0"
 
 
 shutdown_event = threading.Event()
@@ -1185,7 +1185,7 @@ def index() -> str:
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>WoWSim Website Runner</title>
+    <title>LodgeSim Website Runner</title>
   <style>
     :root{--bg:#0d1117;--panel:#161b22;--ink:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--ok:#3fb950;--bad:#f85149;}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:Segoe UI,system-ui,sans-serif}
@@ -1217,7 +1217,7 @@ def index() -> str:
 <body>
 <div class=\"wrap\">
     <div class=\"card\">
-        <h1>WoWSim Website Runner</h1>
+        <h1>LodgeSim Website Runner</h1>
         <div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px\">
             <div>
                 <strong>Runner Status:</strong>

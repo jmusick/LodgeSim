@@ -1,6 +1,6 @@
 param(
-  [string]$TargetRoot = '\\Ark-Server\WoWSim',
-  [string]$ExeName = "WoWSim Website Runner.exe",
+  [string]$TargetRoot = '\\Ark-Server\LodgeSim',
+  [string]$ExeName = "LodgeSim Website Runner.exe",
   [string]$ConfigName = "config.guild.json",
   [switch]$SkipSimc,
   [switch]$SkipCandidates,
@@ -79,7 +79,7 @@ New-DirectoryIfMissing -Path $TargetRoot
 
 $distExe = Join-Path $scriptRootResolved (Join-Path "dist" $ExeName)
 if (-not (Test-Path -LiteralPath $distExe)) {
-  throw "EXE not found at $distExe. Build first with: python -m PyInstaller 'WoWSim Website Runner.spec'"
+  throw "EXE not found at $distExe. Build first with: python -m PyInstaller 'LodgeSim Website Runner.spec'"
 }
 
 $targetExe = Join-Path $TargetRoot $ExeName

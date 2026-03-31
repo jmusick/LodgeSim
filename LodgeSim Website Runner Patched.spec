@@ -33,7 +33,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='WoWSim Website Runner Patched',
+    name='LodgeSim Website Runner Patched',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

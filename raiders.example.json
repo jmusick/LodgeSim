@@ -6,8 +6,8 @@
     },
     {
       "name": "PriestAlt",
-      "profile_path": "C:/Projects/WoWSim/input/priest_alt.simc",
-      "candidates_path": "C:/Projects/WoWSim/candidates-priest.json"
+      "profile_path": "C:/Projects/LodgeSim/input/priest_alt.simc",
+      "candidates_path": "C:/Projects/LodgeSim/candidates-priest.json"
     }
   ]
 }

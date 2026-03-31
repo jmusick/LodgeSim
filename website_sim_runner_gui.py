@@ -24,7 +24,7 @@ WEBAPP_SCRIPT = APP_ROOT / "webapp.py"
 
 
 def _find_wowsim_root() -> pathlib.Path:
-    """Find the WoWSim root directory, searching in multiple locations."""
+    """Find the LodgeSim root directory, searching in multiple locations."""
     locations: list[pathlib.Path] = []
 
     # In frozen mode (__file__ points to a temp extraction dir), prefer the
@@ -47,7 +47,7 @@ def _find_wowsim_root() -> pathlib.Path:
     ])
 
     for loc in locations:
-        # Check for marker files that indicate this is the WoWSim root
+        # Check for marker files that indicate this is the LodgeSim root
         if (
             (loc / ".env.simrunner.local").exists()
             or (loc / ".env.simrunner.local.example").exists()
@@ -81,7 +81,7 @@ _load_dotenv(WOWSIM_ROOT / ".env.simrunner.local")
 _load_dotenv(pathlib.Path.cwd() / ".env.simrunner.local")
 
 WEBAPP_SCRIPT = WOWSIM_ROOT / "webapp.py"
-SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
+SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) LodgeSimRunner/1.0"
 
 
 def _is_local_or_private_host(host: str) -> bool:
@@ -150,7 +150,7 @@ except ImportError:
 class RunnerGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("WoWSim Website Runner")
+        self.title("LodgeSim Website Runner")
         self.geometry("920x820")
         self.minsize(760, 640)
 
@@ -213,7 +213,7 @@ class RunnerGui(tk.Tk):
         root = ttk.Frame(self, padding=12)
         root.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Label(root, text="WoWSim Website Runner", font=("Segoe UI", 14, "bold"))
+        header = ttk.Label(root, text="LodgeSim Website Runner", font=("Segoe UI", 14, "bold"))
         header.pack(anchor=tk.W)
 
         controls = ttk.LabelFrame(root, text="Run Options", padding=10)

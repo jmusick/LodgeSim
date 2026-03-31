@@ -1,10 +1,10 @@
 {
-  "simc_path": "C:/Users/JD/source/WoWSim/tools/simc/nightly/current/simc.exe",
-  "base_profile_path": "C:/Users/JD/source/WoWSim/input/character.simc",
-  "candidates_path": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+  "simc_path": "C:/Users/JD/source/LodgeSim/tools/simc/nightly/current/simc.exe",
+  "base_profile_path": "C:/Users/JD/source/LodgeSim/input/character.simc",
+  "candidates_path": "C:/Projects/LodgeSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
   "raiders_path": null,
   "armory_url": null,
-  "output_dir": "C:/Users/JD/source/WoWSim/results",
+  "output_dir": "C:/Users/JD/source/LodgeSim/results",
   "mode": "single_upgrades",
   "iterations": 15000,
   "threads": 8,
@@ -17,6 +17,6 @@
   "max_scenarios": 300,
   "strict_spec_mapping": false,
   "candidates_by_spec": {
-    "hunter:survival": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json"
+    "hunter:survival": "C:/Projects/LodgeSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json"
   }
 }

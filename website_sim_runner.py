@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull sim targets from HiddenLodgeWebsite, run WoWSim, and post results back."""
+"""Pull sim targets from HiddenLodgeWebsite, run LodgeSim, and post results back."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def _enable_line_buffering() -> None:
         pass
 
 
-SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) WoWSimRunner/1.0"
+SIM_API_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) LodgeSimRunner/1.0"
 
 
 def _open_url_with_proxy_fallback(req: urllib.request.Request, timeout: float):
@@ -846,8 +846,8 @@ def run_single_target_profile(
 
 def main() -> int:
     _enable_line_buffering()
-    parser = argparse.ArgumentParser(description="Website-integrated WoWSim runner")
-    parser.add_argument("--config", default="config.guild.json", help="Path to WoWSim config JSON")
+    parser = argparse.ArgumentParser(description="Website-integrated LodgeSim runner")
+    parser.add_argument("--config", default="config.guild.json", help="Path to LodgeSim config JSON")
     parser.add_argument(
         "--environment",
         choices=["dev", "prod"],

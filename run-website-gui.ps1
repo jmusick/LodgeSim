@@ -32,7 +32,7 @@ Get-Content $envPath | ForEach-Object {
     [Environment]::SetEnvironmentVariable($name, $value, "Process")
 }
 
-$exePath = Join-Path $root "WoWSim Website Runner.exe"
+$exePath = Join-Path $root "LodgeSim Website Runner.exe"
 $pyScript = Join-Path $root "website_sim_runner_gui.py"
 $pythonExe = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $pythonExe)) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-Build the WoWSim Website Runner as a standalone Windows executable using PyInstaller.
+Build the LodgeSim Website Runner as a standalone Windows executable using PyInstaller.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -11,7 +11,7 @@ $PythonExe = Join-Path $ScriptDir ".venv\Scripts\python.exe"
 $GuiScript = Join-Path $ScriptDir "website_sim_runner_gui.py"
 $OutputDir = Join-Path $ScriptDir "dist"
 $BuildDir = Join-Path $ScriptDir "build"
-$SpecFile = Join-Path $ScriptDir "WoWSim Website Runner.spec"
+$SpecFile = Join-Path $ScriptDir "LodgeSim Website Runner.spec"
 
 if (-not (Test-Path $PythonExe)) {
     Write-Error "Python executable not found at: $PythonExe"
@@ -23,7 +23,7 @@ if (-not (Test-Path $GuiScript)) {
     exit 1
 }
 
-Write-Host "Building WoWSim Website Runner executable..." -ForegroundColor Cyan
+Write-Host "Building LodgeSim Website Runner executable..." -ForegroundColor Cyan
 Write-Host "Output directory: $OutputDir" -ForegroundColor Gray
 
 # Create the PyInstaller spec file if it doesn't exist
@@ -32,7 +32,7 @@ if (-not (Test-Path $SpecFile)) {
     & $PythonExe -m PyInstaller `
         --onefile `
         --windowed `
-        --name "WoWSim Website Runner" `
+        --name "LodgeSim Website Runner" `
         --distpath $OutputDir `
         --buildpath $BuildDir `
         --specpath $ScriptDir `
@@ -50,7 +50,7 @@ if (-not (Test-Path $SpecFile)) {
 }
 
 if ($LASTEXITCODE -eq 0) {
-    $ExePath = Join-Path $OutputDir "WoWSim Website Runner.exe"
+    $ExePath = Join-Path $OutputDir "LodgeSim Website Runner.exe"
     if (Test-Path $ExePath) {
         Write-Host "✓ Build successful!" -ForegroundColor Green
         Write-Host "Executable created at: $ExePath" -ForegroundColor Green

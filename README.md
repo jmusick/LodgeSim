@@ -92,11 +92,11 @@ Configs can define spec-specific loot pools:
 
 ```json
 {
-  "candidates_path": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+  "candidates_path": "C:/Projects/LodgeSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
   "strict_spec_mapping": true,
   "candidates_by_spec": {
-    "hunter:survival": "C:/Projects/WoWSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
-    "paladin:holy": "C:/Projects/WoWSim/generated/live-candidates/candidates.paladin-holy.all-raids-normal-hc-mythic.live.json"
+    "hunter:survival": "C:/Projects/LodgeSim/generated/live-candidates/candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
+    "paladin:holy": "C:/Projects/LodgeSim/generated/live-candidates/candidates.paladin-holy.all-raids-normal-hc-mythic.live.json"
   }
 }
 ```
@@ -131,12 +131,12 @@ If `armory_url` is set in `config.json`, single mode imports from Armory automat
   "raiders": [
     {
       "name": "WarriorMain",
-      "profile_path": "C:/Projects/WoWSim/input/warrior_main.simc"
+      "profile_path": "C:/Projects/LodgeSim/input/warrior_main.simc"
     },
     {
       "name": "PriestAlt",
-      "profile_path": "C:/Projects/WoWSim/input/priest_alt.simc",
-      "candidates_path": "C:/Projects/WoWSim/candidates-priest.json"
+      "profile_path": "C:/Projects/LodgeSim/input/priest_alt.simc",
+      "candidates_path": "C:/Projects/LodgeSim/candidates-priest.json"
     }
   ]
 }
@@ -230,7 +230,7 @@ python .\website_sim_runner_gui.py
 Or launch the pre-built EXE directly:
 
 ```
-dist\WoWSim Website Runner Patched.exe
+dist\LodgeSim Website Runner Patched.exe
 ```
 
 To avoid retyping env vars every session, use the launcher script:
@@ -300,7 +300,7 @@ This fetches Raidbots static data from the live manifest and builds a candidates
 Current caveats of the live-data generator:
 
 - It generates candidates using `id=...,ilevel=...` rather than Raidbots-export bonus strings.
-- Tier set pieces are included, and WoWSim applies a local override so current-season catalyst-backed tier pieces retain their original raid token boss sources.
+- Tier set pieces are included, and LodgeSim applies a local override so current-season catalyst-backed tier pieces retain their original raid token boss sources.
 - Since the live data does not provide per-item enchant/gem decisions, the generated candidates are intentionally less opinionated.
 
 ## Getting a Profile for a Spec You Do Not Play
@@ -333,13 +333,13 @@ The nightly wrapper updates SimulationCraft first. Skip that only if needed:
 Run this once in PowerShell (adjust account/time/path):
 
 ```powershell
-schtasks /Create /TN "WoW-Droptimizer-Nightly" /SC DAILY /ST 02:00 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Projects\WoWSim\run-nightly.ps1 -ConfigPath C:\Projects\WoWSim\config.json" /F
+schtasks /Create /TN "WoW-Droptimizer-Nightly" /SC DAILY /ST 02:00 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Projects\LodgeSim\run-nightly.ps1 -ConfigPath C:\Projects\LodgeSim\config.json" /F
 ```
 
 Optional separate updater task (recommended 15-30 minutes before sim):
 
 ```powershell
-schtasks /Create /TN "WoW-SimC-Update" /SC DAILY /ST 01:30 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Projects\WoWSim\update-simc.ps1" /F
+schtasks /Create /TN "WoW-SimC-Update" /SC DAILY /ST 01:30 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Projects\LodgeSim\update-simc.ps1" /F
 ```
 
 or with helper script:

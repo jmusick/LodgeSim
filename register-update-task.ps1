@@ -1,7 +1,7 @@
 param(
   [string]$TaskName = "WoW-SimC-Update",
   [string]$Time = "01:30",
-  [string]$ScriptPath = "C:\Projects\WoWSim\update-simc.ps1"
+  [string]$ScriptPath = "C:\Projects\LodgeSim\update-simc.ps1"
 )
 
 $ErrorActionPreference = "Stop"
