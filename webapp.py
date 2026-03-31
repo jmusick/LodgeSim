@@ -659,7 +659,7 @@ def _build_passive_command(task: dict[str, Any]) -> list[str] | None:
 
     if not char_name or team_id <= 0:
         return None
-    if task_type != "single_target":
+    if task_type not in {"single_target", "droptimizer"}:
         return None
     if difficulty not in {"heroic", "mythic"}:
         difficulty = "heroic"
@@ -673,7 +673,7 @@ def _build_passive_command(task: dict[str, Any]) -> list[str] | None:
     if not (WOWSIM_ROOT / config_name).exists():
         return None
 
-    mode = "single_target"
+    mode = "single_target" if task_type == "single_target" else "site"
 
     try:
         return _build_runner_command(
@@ -759,7 +759,7 @@ def _ensure_passive_scheduler_started() -> None:
                             continue
 
                         task_type = str(raw_task.get("task_type") or "single_target").strip().lower()
-                        if task_type != "single_target":
+                        if task_type not in {"single_target", "droptimizer"}:
                             continue
 
                         task_id = str(raw_task.get("task_id") or "").strip()
