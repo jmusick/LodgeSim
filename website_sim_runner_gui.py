@@ -19,6 +19,8 @@ import urllib.parse
 import urllib.request
 from tkinter import ttk
 
+from app_version import get_app_version
+
 APP_ROOT = pathlib.Path(__file__).resolve().parent
 WEBAPP_SCRIPT = APP_ROOT / "webapp.py"
 
@@ -150,7 +152,8 @@ except ImportError:
 class RunnerGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("LodgeSim Website Runner")
+        self.app_version = get_app_version()
+        self.title(f"LodgeSim Website Runner v{self.app_version}")
         self.geometry("920x820")
         self.minsize(760, 640)
 
@@ -213,7 +216,7 @@ class RunnerGui(tk.Tk):
         root = ttk.Frame(self, padding=12)
         root.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Label(root, text="LodgeSim Website Runner", font=("Segoe UI", 14, "bold"))
+        header = ttk.Label(root, text=f"LodgeSim Website Runner v{self.app_version}", font=("Segoe UI", 14, "bold"))
         header.pack(anchor=tk.W)
 
         controls = ttk.LabelFrame(root, text="Run Options", padding=10)

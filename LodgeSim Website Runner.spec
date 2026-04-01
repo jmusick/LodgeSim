@@ -12,7 +12,9 @@ a = Analysis(
     ['website_sim_runner_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('.\\version.txt', '.'),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

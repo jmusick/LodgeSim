@@ -23,6 +23,8 @@ if (-not (Test-Path $GuiScript)) {
     exit 1
 }
 
+$VersionFile = Join-Path $ScriptDir "version.txt"
+
 Write-Host "Building LodgeSim Website Runner executable..." -ForegroundColor Cyan
 Write-Host "Output directory: $OutputDir" -ForegroundColor Gray
 
@@ -51,6 +53,9 @@ if (-not (Test-Path $SpecFile)) {
 
 if ($LASTEXITCODE -eq 0) {
     $ExePath = Join-Path $OutputDir "LodgeSim Website Runner.exe"
+    if (Test-Path $VersionFile) {
+        Copy-Item -LiteralPath $VersionFile -Destination (Join-Path $OutputDir "version.txt") -Force
+    }
     if (Test-Path $ExePath) {
         Write-Host "✓ Build successful!" -ForegroundColor Green
         Write-Host "Executable created at: $ExePath" -ForegroundColor Green

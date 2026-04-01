@@ -90,7 +90,8 @@ Copy-Item -LiteralPath $distExe -Destination $targetExe -Force
 $helperFiles = @(
   "update-simc.ps1",
   "run-website-gui.ps1",
-  "tier_source_overrides.json"
+  "tier_source_overrides.json",
+  "version.txt"
 )
 foreach ($helper in $helperFiles) {
   $src = Join-Path $scriptRootResolved $helper

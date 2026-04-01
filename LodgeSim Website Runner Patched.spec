@@ -16,6 +16,7 @@ a = Analysis(
         ('.\\config.guild.json', '.'),
         ('.\\website_sim_runner.py', '.'),
         ('.\\update-simc.ps1', '.'),
+        ('.\\version.txt', '.'),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],

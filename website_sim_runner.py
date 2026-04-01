@@ -30,6 +30,7 @@ from droptimizer import (
 )
 from generate_live_candidates import DEFAULT_RAID_IDS, ensure_generated_candidate_file
 from guild_droptimizer import collect_winners_from_raider_csv, merge_item_winners
+from app_version import get_runner_version_tag
 
 
 # Mapping from UI raid slug → Raidbots instance IDs
@@ -80,6 +81,10 @@ class TargetsResponse:
 
 def utc_now() -> str:
     return dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
+
+
+RUNNER_VERSION = get_runner_version_tag(single_target=False)
+RUNNER_VERSION_SINGLE_TARGET = get_runner_version_tag(single_target=True)
 
 
 def _enable_line_buffering() -> None:
@@ -408,13 +413,16 @@ def run_team(
     out_dir = output_root / f"team_{team.team_id}_{team_slug}_{team.difficulty}_{run_id[:8]}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve raid/difficulty filter
+    # Resolve raid/difficulty filter.
+    # Automation treats "all" as Heroic+Mythic only (Normal excluded).
     selected_instance_ids: set[int] | None = None
     effective_difficulties: list[str] | None = None
     if sim_raid and sim_raid != "all":
         instance_list = RAID_INSTANCE_IDS.get(sim_raid, DEFAULT_RAID_IDS)
         selected_instance_ids = set(instance_list)
-    if sim_difficulty and sim_difficulty != "all":
+    if sim_difficulty == "all":
+        effective_difficulties = ["heroic", "mythic"]
+    elif sim_difficulty:
         effective_difficulties = [sim_difficulty]
 
     sim_raid_label = RAID_DISPLAY_NAMES.get(sim_raid, "All Raids") if sim_raid else "All Raids"
@@ -434,7 +442,7 @@ def run_team(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1.1",
+            "runner_version": RUNNER_VERSION,
         },
     )
 
@@ -540,7 +548,7 @@ def run_team(
                 "sim_raid_label": sim_raid_label,
                 "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1.1",
+                "runner_version": RUNNER_VERSION,
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
             },
@@ -575,13 +583,16 @@ def run_addon_profile(
     out_dir = output_root / f"team_{team.team_id}_{team_slug}_{team.difficulty}_{run_id[:8]}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve raid/difficulty filter
+    # Resolve raid/difficulty filter.
+    # Automation treats "all" as Heroic+Mythic only (Normal excluded).
     selected_instance_ids: set[int] | None = None
     effective_difficulties: list[str] | None = None
     if sim_raid and sim_raid != "all":
         instance_list = RAID_INSTANCE_IDS.get(sim_raid, DEFAULT_RAID_IDS)
         selected_instance_ids = set(instance_list)
-    if sim_difficulty and sim_difficulty != "all":
+    if sim_difficulty == "all":
+        effective_difficulties = ["heroic", "mythic"]
+    elif sim_difficulty:
         effective_difficulties = [sim_difficulty]
 
     sim_raid_label = RAID_DISPLAY_NAMES.get(sim_raid, "All Raids") if sim_raid else "All Raids"
@@ -602,7 +613,7 @@ def run_addon_profile(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1.1",
+            "runner_version": RUNNER_VERSION,
         },
     )
 
@@ -675,7 +686,7 @@ def run_addon_profile(
                 "sim_raid_label": sim_raid_label,
                 "sim_difficulty": sim_difficulty if sim_difficulty != "all" else None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1.1",
+                "runner_version": RUNNER_VERSION,
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
             },
@@ -748,7 +759,7 @@ def run_single_target_profile(
             "difficulty": team.difficulty,
             "started_at_utc": started_at,
             "simc_version": None,
-            "runner_version": "wowsim-website-runner-v1.1-single-target",
+            "runner_version": RUNNER_VERSION_SINGLE_TARGET,
         },
     )
 
@@ -819,7 +830,7 @@ def run_single_target_profile(
                 "sim_raid_label": "Single Target",
                 "sim_difficulty": None,
                 "simc_version": None,
-                "runner_version": "wowsim-website-runner-v1.1-single-target",
+                "runner_version": RUNNER_VERSION_SINGLE_TARGET,
                 "raider_summaries": [
                     {
                         "blizzard_char_id": raider.blizzard_char_id,
@@ -906,8 +917,8 @@ def main() -> int:
     parser.add_argument(
         "--sim-difficulty",
         default="all",
-        choices=["all", "normal", "heroic", "mythic"],
-        help="Restrict candidate pool to a single difficulty. Default: all.",
+        choices=["all", "heroic", "mythic"],
+        help="Restrict candidate pool to a single difficulty. Default: all (Heroic+Mythic).",
     )
     parser.add_argument(
         "--mode",

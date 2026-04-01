@@ -15,7 +15,7 @@ from droptimizer import normalize_candidate_mapping_key
 
 RAIDBOTS_BASE = "https://www.raidbots.com/static/data/live"
 USER_AGENT = "Mozilla/5.0"
-DEFAULT_POOL_NAME = "all-raids-normal-hc-mythic.live"
+DEFAULT_POOL_NAME = "all-raids-hc-mythic.live"
 DEFAULT_OUTPUT_SUBDIR = pathlib.Path("generated") / "live-candidates"
 TIER_SOURCE_OVERRIDES_PATH = pathlib.Path(__file__).with_name("tier_source_overrides.json")
 
@@ -451,7 +451,7 @@ def ensure_generated_candidate_file(
             register_mappings(config_path, {normalized_spec: output_path}, strict, default_spec=normalized_spec if set_default else "")
         return output_path
 
-    effective_difficulties = difficulties or ["normal", "heroic", "mythic"]
+    effective_difficulties = difficulties or ["heroic", "mythic"]
     effective_instance_ids = selected_instance_ids or set(DEFAULT_RAID_IDS)
     items, instance_names, encounter_names = load_raidbots_context()
     payload = generate_candidates_payload(
@@ -542,7 +542,7 @@ def main() -> int:
     parser.add_argument(
         "--difficulty",
         nargs="+",
-        default=["normal", "heroic", "mythic"],
+        default=["heroic", "mythic"],
         choices=sorted(RAID_DIFFICULTY_ILVLS),
         help="Difficulties to include",
     )

@@ -1614,7 +1614,7 @@ def api_jobs_start() -> Any:
         return jsonify({"error": "addon_export is required when mode is addon"}), 400
     if sim_raid not in {"all", "voidspire", "dreamrift", "queldanas"}:
         sim_raid = "all"
-    if sim_difficulty not in {"all", "normal", "heroic", "mythic"}:
+    if sim_difficulty not in {"all", "heroic", "mythic"}:
         sim_difficulty = "all"
 
     base_url = _site_base_url()
