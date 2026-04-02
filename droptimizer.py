@@ -556,19 +556,6 @@ def _lookup_path(data: dict[str, Any], path: list[str]) -> float | None:
 
 
 def parse_dps_from_json(payload: dict[str, Any]) -> float | None:
-    common_paths = [
-        ["sim", "statistics", "raid_dps", "mean"],
-        ["sim", "statistics", "dps", "mean"],
-        ["statistics", "raid_dps", "mean"],
-        ["statistics", "dps", "mean"],
-        ["raid_dps", "mean"],
-        ["dps", "mean"],
-    ]
-    for path in common_paths:
-        value = _lookup_path(payload, path)
-        if value is not None:
-            return value
-
     players = payload.get("sim", {}).get("players", [])
     if isinstance(players, list) and players:
         first = players[0]
@@ -580,6 +567,19 @@ def parse_dps_from_json(payload: dict[str, Any]) -> float | None:
             value = _lookup_path(first, path)
             if value is not None:
                 return value
+
+    common_paths = [
+        ["sim", "statistics", "dps", "mean"],
+        ["statistics", "dps", "mean"],
+        ["dps", "mean"],
+        ["sim", "statistics", "raid_dps", "mean"],
+        ["statistics", "raid_dps", "mean"],
+        ["raid_dps", "mean"],
+    ]
+    for path in common_paths:
+        value = _lookup_path(payload, path)
+        if value is not None:
+            return value
 
     return None
 
