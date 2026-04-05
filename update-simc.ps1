@@ -9,11 +9,77 @@ param(
 $ErrorActionPreference = "Stop"
 
 $indexUrl = "${BaseUrl}?C=M;O=D"
-$installRootResolved = (Resolve-Path "." ).Path | Join-Path -ChildPath $InstallRoot
+$installRootResolved = Join-Path -Path (Resolve-Path ".").Path -ChildPath $InstallRoot
 $downloadsDir = Join-Path $installRootResolved "downloads"
 $currentDir = Join-Path $installRootResolved "current"
 $stagingDir = Join-Path $installRootResolved "staging"
 $versionFile = Join-Path $currentDir "VERSION.txt"
+
+function Expand-SimcArchive {
+  param(
+    [Parameter(Mandatory = $true)][string]$ArchivePath,
+    [Parameter(Mandatory = $true)][string]$DestinationPath
+  )
+
+  $extension = [System.IO.Path]::GetExtension($ArchivePath).ToLowerInvariant()
+  if ($extension -eq ".zip") {
+    Expand-Archive -Path $ArchivePath -DestinationPath $DestinationPath -Force
+    return
+  }
+
+  $tarCmd = Get-Command tar -ErrorAction SilentlyContinue
+  if ($tarCmd) {
+    Write-Host "Trying extractor: tar"
+    & $tarCmd.Source -xf $ArchivePath -C $DestinationPath
+    if ($LASTEXITCODE -eq 0) {
+      return
+    }
+    Write-Warning "tar extraction failed (exit $LASTEXITCODE). Falling back to 7-Zip if available."
+  }
+
+  $sevenZipCmd = Get-Command 7z -ErrorAction SilentlyContinue
+  if (-not $sevenZipCmd) {
+    $sevenZipCmd = Get-Command 7za -ErrorAction SilentlyContinue
+  }
+  if (-not $sevenZipCmd) {
+    $sevenZipCmd = Get-Command 7zr -ErrorAction SilentlyContinue
+  }
+
+  if ($sevenZipCmd) {
+    Write-Host "Trying extractor: $($sevenZipCmd.Name)"
+    & $sevenZipCmd.Source x -y "-o$DestinationPath" $ArchivePath
+    if ($LASTEXITCODE -eq 0) {
+      return
+    }
+    throw "7-Zip extraction failed (exit $LASTEXITCODE)."
+  }
+
+  throw "Unable to extract $ArchivePath. Install BSD tar with .7z support or install 7-Zip (7z/7za/7zr in PATH)."
+}
+
+function Update-ConfigSimcPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorkspaceRoot,
+    [Parameter(Mandatory = $true)][string]$SimcPath
+  )
+
+  $configCandidates = @("config.json", "config.guild.json")
+  foreach ($cfg in $configCandidates) {
+    $cfgPath = Join-Path $WorkspaceRoot $cfg
+    if (-not (Test-Path $cfgPath)) {
+      continue
+    }
+
+    try {
+      $config = Get-Content -Path $cfgPath -Raw | ConvertFrom-Json
+      $config.simc_path = $SimcPath
+      $config | ConvertTo-Json -Depth 8 | Set-Content -Path $cfgPath -Encoding UTF8
+      Write-Host "Updated $cfg simc_path -> $SimcPath"
+    } catch {
+      Write-Warning "$cfg exists but could not be updated automatically: $($_.Exception.Message)"
+    }
+  }
+}
 
 New-Item -Path $downloadsDir -ItemType Directory -Force | Out-Null
 New-Item -Path $currentDir -ItemType Directory -Force | Out-Null
@@ -55,7 +121,7 @@ if (Test-Path $stagingDir) {
 New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
 
 Write-Host "Extracting archive..."
-tar -xf $archivePath -C $stagingDir
+Expand-SimcArchive -ArchivePath $archivePath -DestinationPath $stagingDir
 
 $simcExe = Get-ChildItem -Path $stagingDir -Filter "simc.exe" -Recurse | Select-Object -First 1
 if (-not $simcExe) {
@@ -79,19 +145,8 @@ if (Test-Path $currentDir) {
 Rename-Item -Path $tempCurrent -NewName "current"
 
 $workspaceRoot = (Resolve-Path ".").Path
-$configPath = Join-Path $workspaceRoot "config.json"
 $simcPath = Join-Path -Path $workspaceRoot -ChildPath "tools\simc\nightly\current\simc.exe"
-
-if (Test-Path $configPath) {
-  try {
-    $config = Get-Content -Path $configPath -Raw | ConvertFrom-Json
-    $config.simc_path = $simcPath
-    $config | ConvertTo-Json -Depth 8 | Set-Content -Path $configPath -Encoding UTF8
-    Write-Host "Updated config.json simc_path -> $simcPath"
-  } catch {
-    Write-Warning "config.json exists but could not be updated automatically: $($_.Exception.Message)"
-  }
-}
+Update-ConfigSimcPath -WorkspaceRoot $workspaceRoot -SimcPath $simcPath
 
 Write-Host "Installed nightly build: $latestFile"
 Write-Host "simc path: $simcPath"
