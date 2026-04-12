@@ -14,6 +14,7 @@ $downloadsDir = Join-Path $installRootResolved "downloads"
 $currentDir = Join-Path $installRootResolved "current"
 $stagingDir = Join-Path $installRootResolved "staging"
 $versionFile = Join-Path $currentDir "VERSION.txt"
+$currentSimcExe = Join-Path $currentDir "simc.exe"
 
 function Expand-SimcArchive {
   param(
@@ -121,7 +122,17 @@ if (Test-Path $stagingDir) {
 New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
 
 Write-Host "Extracting archive..."
-Expand-SimcArchive -ArchivePath $archivePath -DestinationPath $stagingDir
+try {
+  Expand-SimcArchive -ArchivePath $archivePath -DestinationPath $stagingDir
+} catch {
+  $extractError = $_.Exception.Message
+  if (Test-Path -LiteralPath $currentSimcExe) {
+    Write-Warning "SimC archive extraction failed: $extractError"
+    Write-Warning "Continuing with existing installed SimC at: $currentSimcExe"
+    exit 0
+  }
+  throw
+}
 
 $simcExe = Get-ChildItem -Path $stagingDir -Filter "simc.exe" -Recurse | Select-Object -First 1
 if (-not $simcExe) {

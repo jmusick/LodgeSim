@@ -468,6 +468,7 @@ def run_team(
         raider_id_by_label: dict[str, int] = {}
         all_winner_maps = []
         raider_summaries = []
+        item_scores = []
 
         for idx, raider in enumerate(raiders, start=1):
             label = f"{raider.name}-{raider.realm_slug}"
@@ -495,7 +496,24 @@ def run_team(
                 label=label,
             )
 
-            all_winner_maps.append(collect_winners_from_raider_csv(summary.csv_path, label))
+            raider_winner_map = collect_winners_from_raider_csv(summary.csv_path, label)
+            all_winner_maps.append(raider_winner_map)
+
+            for winner in raider_winner_map.values():
+                item_scores.append(
+                    {
+                        "blizzard_char_id": raider.blizzard_char_id,
+                        "slot": winner.slot,
+                        "item_id": int(winner.item_id) if winner.item_id else None,
+                        "item_label": winner.item_label,
+                        "ilvl": float(winner.ilvl) if winner.ilvl else None,
+                        "source": winner.source or None,
+                        "delta_dps": winner.delta,
+                        "pct_gain": winner.pct_gain,
+                        "simc": winner.simc,
+                    }
+                )
+
             raider_summaries.append(
                 {
                     "blizzard_char_id": raider.blizzard_char_id,
@@ -551,6 +569,7 @@ def run_team(
                 "runner_version": RUNNER_VERSION,
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
+                "item_scores": item_scores,
             },
         )
 
@@ -645,7 +664,8 @@ def run_addon_profile(
 
         _call_heartbeat(base_url, runner_key, run_id, team.team_id)
 
-        winners = merge_item_winners([collect_winners_from_raider_csv(summary.csv_path, label)])
+        raider_winner_map = collect_winners_from_raider_csv(summary.csv_path, label)
+        winners = merge_item_winners([raider_winner_map])
 
         item_winners = []
         for winner in winners:
@@ -673,6 +693,22 @@ def run_addon_profile(
             }
         ]
 
+        item_scores = []
+        for winner in raider_winner_map.values():
+            item_scores.append(
+                {
+                    "blizzard_char_id": raider.blizzard_char_id,
+                    "slot": winner.slot,
+                    "item_id": int(winner.item_id) if winner.item_id else None,
+                    "item_label": winner.item_label,
+                    "ilvl": float(winner.ilvl) if winner.ilvl else None,
+                    "source": winner.source or None,
+                    "delta_dps": winner.delta,
+                    "pct_gain": winner.pct_gain,
+                    "simc": winner.simc,
+                }
+            )
+
         _call_results(
             base_url,
             runner_key,
@@ -689,6 +725,7 @@ def run_addon_profile(
                 "runner_version": RUNNER_VERSION,
                 "raider_summaries": raider_summaries,
                 "item_winners": item_winners,
+                "item_scores": item_scores,
             },
         )
 

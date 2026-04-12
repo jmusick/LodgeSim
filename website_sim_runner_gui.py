@@ -157,6 +157,25 @@ class RunnerGui(tk.Tk):
         self.geometry("920x820")
         self.minsize(760, 640)
 
+        # Match the website visual language for the desktop runner.
+        self._c_bg = "#050b12"
+        self._c_bg_soft = "#101a25"
+        self._c_panel = "#152231"
+        self._c_text = "#ebf1f5"
+        self._c_muted = "#afc1cd"
+        self._c_gold = "#d6b06a"
+        self._c_gold_bright = "#e9c987"
+        self._c_ok = "#3fb950"
+        self._c_warn = "#d29922"
+        self._c_error = "#f85149"
+
+        self._pad_xs = 4
+        self._pad_sm = 8
+        self._pad_md = 12
+        self._pad_lg = 16
+
+        self._init_theme()
+
         self._api_proc: subprocess.Popen[str] | None = None
         self._simc_update_proc: subprocess.Popen[str] | None = None
         self._queue: queue.Queue[str] = queue.Queue()
@@ -212,18 +231,79 @@ class RunnerGui(tk.Tk):
         self._schedule_connection_check()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _init_theme(self) -> None:
+        self.configure(bg=self._c_bg)
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(
+            ".",
+            background=self._c_bg_soft,
+            foreground=self._c_text,
+            font=("Trebuchet MS", 10),
+        )
+        style.configure("TFrame", background=self._c_bg_soft)
+        style.configure("TLabelframe", background=self._c_bg_soft, borderwidth=1, relief="solid")
+        style.configure("TLabelframe.Label", background=self._c_bg_soft, foreground=self._c_gold, font=("Georgia", 11, "bold"))
+        style.configure("TLabel", background=self._c_bg_soft, foreground=self._c_text)
+        style.configure("Muted.TLabel", background=self._c_bg_soft, foreground=self._c_muted)
+        style.configure("Header.TLabel", background=self._c_bg_soft, foreground=self._c_gold_bright, font=("Georgia", 16, "bold"))
+
+        style.configure(
+            "TButton",
+            background=self._c_panel,
+            foreground=self._c_text,
+            borderwidth=1,
+            relief="solid",
+            padding=(self._pad_sm, self._pad_xs),
+        )
+        style.map(
+            "TButton",
+            background=[("active", self._c_gold), ("pressed", self._c_gold_bright)],
+            foreground=[("active", self._c_bg), ("pressed", self._c_bg)],
+        )
+
+        style.configure("TRadiobutton", background=self._c_bg_soft, foreground=self._c_text)
+
+        style.configure(
+            "TEntry",
+            fieldbackground=self._c_panel,
+            foreground=self._c_text,
+            borderwidth=1,
+            insertcolor=self._c_text,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=self._c_panel,
+            background=self._c_panel,
+            foreground=self._c_text,
+            borderwidth=1,
+        )
+
+        style.configure(
+            "Horizontal.TProgressbar",
+            background=self._c_gold,
+            troughcolor=self._c_panel,
+            borderwidth=0,
+            lightcolor=self._c_gold,
+            darkcolor=self._c_gold,
+        )
+
     def _build_ui(self) -> None:
-        root = ttk.Frame(self, padding=12)
+        root = ttk.Frame(self, padding=self._pad_lg)
         root.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Label(root, text=f"LodgeSim Website Runner v{self.app_version}", font=("Segoe UI", 14, "bold"))
+        header = ttk.Label(root, text=f"LodgeSim Website Runner v{self.app_version}", style="Header.TLabel")
         header.pack(anchor=tk.W)
 
-        controls = ttk.LabelFrame(root, text="Run Options", padding=10)
-        controls.pack(fill=tk.X, pady=(10, 10))
+        controls = ttk.LabelFrame(root, text="Run Options", padding=self._pad_md)
+        controls.pack(fill=tk.X, pady=(self._pad_md, self._pad_md))
 
         env_row = ttk.Frame(controls)
-        env_row.pack(fill=tk.X, pady=4)
+        env_row.pack(fill=tk.X, pady=self._pad_xs)
         ttk.Label(env_row, text="Environment:", width=18).pack(side=tk.LEFT)
         ttk.Radiobutton(
             env_row,
@@ -231,7 +311,7 @@ class RunnerGui(tk.Tk):
             value="dev",
             variable=self.environment,
             command=self._on_environment_change,
-        ).pack(side=tk.LEFT, padx=(0, 10))
+        ).pack(side=tk.LEFT, padx=(0, self._pad_md))
         ttk.Radiobutton(
             env_row,
             text="Prod",
@@ -241,18 +321,18 @@ class RunnerGui(tk.Tk):
         ).pack(side=tk.LEFT)
 
         dev_host_row = ttk.Frame(controls)
-        dev_host_row.pack(fill=tk.X, pady=4)
+        dev_host_row.pack(fill=tk.X, pady=self._pad_xs)
         ttk.Label(dev_host_row, text="Dev PC Name:", width=18).pack(side=tk.LEFT)
         ttk.Entry(dev_host_row, textvariable=self.dev_pc_host).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(dev_host_row, text="Apply", command=self._apply_dev_host_setting).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(dev_host_row, text="Apply", command=self._apply_dev_host_setting).pack(side=tk.LEFT, padx=(self._pad_sm, 0))
 
         button_row = ttk.Frame(root)
-        button_row.pack(fill=tk.X, pady=(0, 10))
+        button_row.pack(fill=tk.X, pady=(0, self._pad_md))
 
         runner_row = ttk.Frame(button_row)
         runner_row.pack(side=tk.LEFT, anchor=tk.W)
         ttk.Label(runner_row, text="Runner:").pack(side=tk.LEFT)
-        ttk.Label(runner_row, textvariable=self.runner_state).pack(side=tk.LEFT, padx=(6, 10))
+        ttk.Label(runner_row, textvariable=self.runner_state).pack(side=tk.LEFT, padx=(6, self._pad_md))
         self._online_btn = ttk.Button(runner_row, text="Bring Online", command=self._bring_online)
         self._online_btn.pack(side=tk.LEFT)
         self._offline_btn = ttk.Button(runner_row, text="Bring Offline", command=self._bring_offline)
@@ -265,42 +345,42 @@ class RunnerGui(tk.Tk):
 
         server_row = ttk.Frame(status_col)
         server_row.grid(row=0, column=0, sticky="w")
-        self._server_dot_canvas = tk.Canvas(server_row, width=10, height=10, highlightthickness=0, bd=0)
+        self._server_dot_canvas = tk.Canvas(server_row, width=10, height=10, highlightthickness=0, bd=0, bg=self._c_bg_soft)
         self._server_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
-        self._server_dot_id = self._server_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
+        self._server_dot_id = self._server_dot_canvas.create_oval(2, 2, 8, 8, fill=self._c_warn, outline=self._c_warn)
         ttk.Label(server_row, text="Sim Client API Server:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(server_row, textvariable=self.server_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(server_row, textvariable=self.server_status, anchor="w", style="Muted.TLabel").grid(row=0, column=2, padx=(6, 0), sticky="w")
 
         api_row = ttk.Frame(status_col)
         api_row.grid(row=1, column=0, sticky="w")
-        self._api_dot_canvas = tk.Canvas(api_row, width=10, height=10, highlightthickness=0, bd=0)
+        self._api_dot_canvas = tk.Canvas(api_row, width=10, height=10, highlightthickness=0, bd=0, bg=self._c_bg_soft)
         self._api_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
-        self._api_dot_id = self._api_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
+        self._api_dot_id = self._api_dot_canvas.create_oval(2, 2, 8, 8, fill=self._c_warn, outline=self._c_warn)
         ttk.Label(api_row, text="Website API:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(api_row, textvariable=self.api_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(api_row, textvariable=self.api_status, anchor="w", style="Muted.TLabel").grid(row=0, column=2, padx=(6, 0), sticky="w")
 
         simc_row = ttk.Frame(status_col)
         simc_row.grid(row=2, column=0, sticky="w")
-        self._simc_dot_canvas = tk.Canvas(simc_row, width=10, height=10, highlightthickness=0, bd=0)
+        self._simc_dot_canvas = tk.Canvas(simc_row, width=10, height=10, highlightthickness=0, bd=0, bg=self._c_bg_soft)
         self._simc_dot_canvas.grid(row=0, column=0, padx=(0, 6), sticky="w")
-        self._simc_dot_id = self._simc_dot_canvas.create_oval(2, 2, 8, 8, fill="#d29922", outline="#d29922")
+        self._simc_dot_id = self._simc_dot_canvas.create_oval(2, 2, 8, 8, fill=self._c_warn, outline=self._c_warn)
         ttk.Label(simc_row, text="SimC Auto-Update:", width=19, anchor="w").grid(row=0, column=1, sticky="w")
-        ttk.Label(simc_row, textvariable=self.simc_status, anchor="w").grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Label(simc_row, textvariable=self.simc_status, anchor="w", style="Muted.TLabel").grid(row=0, column=2, padx=(6, 0), sticky="w")
         self._simc_check_btn = ttk.Button(simc_row, text="Check Now", command=self._start_simc_auto_update_check, width=10)
-        self._simc_check_btn.grid(row=0, column=3, padx=(4, 0), sticky="w")
+        self._simc_check_btn.grid(row=0, column=3, padx=(self._pad_xs, 0), sticky="w")
 
-        job_frame = ttk.LabelFrame(root, text="Current Job", padding=10)
-        job_frame.pack(fill=tk.X, pady=(0, 10))
+        job_frame = ttk.LabelFrame(root, text="Current Job", padding=self._pad_md)
+        job_frame.pack(fill=tk.X, pady=(0, self._pad_md))
 
         job_row_1 = ttk.Frame(job_frame)
-        job_row_1.pack(fill=tk.X, pady=(0, 4))
+        job_row_1.pack(fill=tk.X, pady=(0, self._pad_xs))
         ttk.Label(job_row_1, text="Job:", width=12).pack(side=tk.LEFT)
         ttk.Label(job_row_1, textvariable=self.job_id).pack(side=tk.LEFT)
         ttk.Label(job_row_1, text="Status:", width=12).pack(side=tk.LEFT, padx=(18, 0))
         ttk.Label(job_row_1, textvariable=self.job_status).pack(side=tk.LEFT)
 
         job_row_2 = ttk.Frame(job_frame)
-        job_row_2.pack(fill=tk.X, pady=(0, 4))
+        job_row_2.pack(fill=tk.X, pady=(0, self._pad_xs))
         ttk.Label(job_row_2, text="Progress:", width=12).pack(side=tk.LEFT)
         ttk.Label(job_row_2, textvariable=self.job_progress).pack(side=tk.LEFT)
 
@@ -314,7 +394,7 @@ class RunnerGui(tk.Tk):
         self.job_progress_bar.pack(fill=tk.X, pady=(0, 6))
 
         job_row_3 = ttk.Frame(job_frame)
-        job_row_3.pack(fill=tk.X, pady=(0, 4))
+        job_row_3.pack(fill=tk.X, pady=(0, self._pad_xs))
         ttk.Label(job_row_3, text="Detail:", width=12).pack(side=tk.LEFT)
         ttk.Label(job_row_3, textvariable=self.job_detail).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -323,8 +403,8 @@ class RunnerGui(tk.Tk):
         ttk.Label(job_row_4, text="Last Output:", width=12).pack(side=tk.LEFT)
         ttk.Label(job_row_4, textvariable=self.job_last_output).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        queue_frame = ttk.LabelFrame(root, text="Queued Work", padding=10)
-        queue_frame.pack(fill=tk.X, pady=(0, 10))
+        queue_frame = ttk.LabelFrame(root, text="Queued Work", padding=self._pad_md)
+        queue_frame.pack(fill=tk.X, pady=(0, self._pad_md))
 
         queue_row = ttk.Frame(queue_frame)
         queue_row.pack(fill=tk.X)
@@ -336,15 +416,15 @@ class RunnerGui(tk.Tk):
             state="readonly",
             values=[],
         )
-        self._queue_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 8))
+        self._queue_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, self._pad_sm))
 
         self._run_now_btn = ttk.Button(queue_row, text="Run Now", command=self._run_selected_now)
         self._run_now_btn.pack(side=tk.LEFT)
         self._run_now_btn.configure(state=tk.DISABLED)
 
         passive_row_1 = ttk.Frame(queue_frame)
-        passive_row_1.pack(fill=tk.X, pady=(8, 2))
-        ttk.Label(passive_row_1, textvariable=self.passive_batch_summary).pack(side=tk.LEFT, anchor=tk.W)
+        passive_row_1.pack(fill=tk.X, pady=(self._pad_sm, 2))
+        ttk.Label(passive_row_1, textvariable=self.passive_batch_summary, style="Muted.TLabel").pack(side=tk.LEFT, anchor=tk.W)
 
         self.passive_progress_bar = ttk.Progressbar(
             queue_frame,
@@ -357,12 +437,23 @@ class RunnerGui(tk.Tk):
 
         passive_row_2 = ttk.Frame(queue_frame)
         passive_row_2.pack(fill=tk.X)
-        ttk.Label(passive_row_2, textvariable=self.passive_batch_detail).pack(side=tk.LEFT, anchor=tk.W)
+        ttk.Label(passive_row_2, textvariable=self.passive_batch_detail, style="Muted.TLabel").pack(side=tk.LEFT, anchor=tk.W)
 
-        output_frame = ttk.LabelFrame(root, text="Console", padding=8)
+        output_frame = ttk.LabelFrame(root, text="Console", padding=self._pad_sm)
         output_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.output = tk.Text(output_frame, wrap=tk.CHAR, font=("Consolas", 10))
+        self.output = tk.Text(
+            output_frame,
+            wrap=tk.CHAR,
+            font=("Consolas", 10),
+            bg=self._c_panel,
+            fg=self._c_text,
+            insertbackground=self._c_text,
+            selectbackground="#2c435c",
+            relief="flat",
+            padx=self._pad_sm,
+            pady=self._pad_sm,
+        )
         output_scroll = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output.yview)
         self.output.configure(yscrollcommand=output_scroll.set)
         self.output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -797,12 +888,12 @@ class RunnerGui(tk.Tk):
             return
 
         color_map = {
-            "ok": "#3fb950",
-            "checking": "#d29922",
-            "warn": "#d29922",
-            "error": "#f85149",
+            "ok": self._c_ok,
+            "checking": self._c_warn,
+            "warn": self._c_warn,
+            "error": self._c_error,
         }
-        color = color_map.get(state, "#8b949e")
+        color = color_map.get(state, self._c_muted)
         canvas.itemconfigure(dot_id, fill=color, outline=color)
 
     def _set_server_status(self, message: str, state: str) -> None:
