@@ -1,5 +1,5 @@
 param(
-  [string]$TargetRoot = '\\Ark-Server\LodgeSim',
+  [string]$TargetRoot = '\\Ark-Server\WoWSim',
   [string]$ExeName = "LodgeSim Website Runner.exe",
   [string]$ConfigName = "config.guild.json",
   [switch]$SkipSimc,
