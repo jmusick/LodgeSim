@@ -12,7 +12,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -188,8 +187,7 @@ def _wowsim_app_api_key() -> str:
 
 
 def _manual_start_enabled() -> bool:
-    raw = (os.environ.get("WOWSIM_ALLOW_MANUAL_START") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return False
 
 
 def _request_is_authorized_website_call() -> bool:
@@ -1503,177 +1501,16 @@ loadConfigs().then(refreshRuntimeState).then(refresh);
 
 @app.post("/api/start")
 def api_start() -> Any:
-    if not _manual_start_enabled():
-        return jsonify({
-            "error": "Manual starts are disabled. Use website launch flow via /api/jobs/start.",
-        }), 403
-
-    if not _runtime_online():
-        return jsonify({"error": "runner is offline; click Bring Online first"}), 503
-
-    payload = request.get_json(silent=True) or {}
-
-    raw_config = payload.get("config")
-    config = str(raw_config).strip() if raw_config else default_config_name()
-    guild_url = str(payload.get("guild_url", "")).strip()
-    difficulty = str(payload.get("difficulty", "")).strip().lower()
-    locale = str(payload.get("locale", "en-us")).strip()
-    level = int(payload.get("level", 90) or 90)
-    max_raiders = int(payload.get("max_raiders", 0) or 0)
-    parallel_raiders = int(payload.get("parallel_raiders", 1) or 1)
-    dry_run = bool(payload.get("dry_run", False))
-    positive_only = bool(payload.get("positive_only", False))
-
-    if not guild_url:
-        return jsonify({"error": "guild_url is required"}), 400
-    if difficulty not in {"heroic", "mythic"}:
-        return jsonify({"error": "difficulty must be heroic or mythic"}), 400
-    if parallel_raiders < 1:
-        return jsonify({"error": "parallel_raiders must be >= 1"}), 400
-    if not (WOWSIM_ROOT / config).exists():
-        return jsonify({
-            "error": f"Config file not found: {config}",
-            "default_config": default_config_name(),
-        }), 400
-
-    try:
-        cmd = _build_python_script_command(
-            WOWSIM_ROOT / "guild_droptimizer.py",
-            "--config",
-            config,
-            "--guild-url",
-            guild_url,
-            "--difficulty",
-            difficulty,
-            "--level",
-            str(level),
-            "--locale",
-            locale,
-            "--parallel-raiders",
-            str(parallel_raiders),
-        )
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 503
-    if max_raiders > 0:
-        cmd.extend(["--max-raiders", str(max_raiders)])
-    if dry_run:
-        cmd.append("--dry-run")
-    if positive_only:
-        cmd.append("--positive-only")
-
-    job_id = uuid.uuid4().hex
-    job = JobState(
-        id=job_id,
-        command=cmd,
-        status="queued",
-        started_at=dt.datetime.now().isoformat(timespec="seconds"),
-        priority=80,
-        queue_seq=_next_queue_seq(),
-        source="manual-local",
-    )
-    with job_cond:
-        jobs[job_id] = job
-        job_cond.notify_all()
-
-    _ensure_worker_started()
-
-    return jsonify({"job": _serialize_job(job)})
+    return jsonify({
+        "error": "Manual starts are removed. This runner only processes passive website tasks.",
+    }), 410
 
 
 @app.post("/api/jobs/start")
 def api_jobs_start() -> Any:
-    if not _request_is_authorized_website_call():
-        return jsonify({"error": "unauthorized website launch request"}), 401
-
-    if not _runtime_online():
-        return jsonify({"error": "runner is offline"}), 503
-
-    payload = request.get_json(silent=True) or {}
-
-    char_name = str(payload.get("char_name", "")).strip()
-    realm_slug = str(payload.get("realm_slug", "")).strip()
-    region = str(payload.get("region", "us")).strip().lower() or "us"
-    site_team_id = payload.get("site_team_id")
-    difficulty = str(payload.get("difficulty", "heroic")).strip().lower()
-    mode = str(payload.get("mode", "site")).strip().lower()
-    addon_export = str(payload.get("addon_export", "")).strip() if mode == "addon" else ""
-    sim_raid = str(payload.get("sim_raid", "all")).strip().lower()
-    sim_difficulty = str(payload.get("sim_difficulty", "all")).strip().lower()
-
-    if not char_name:
-        return jsonify({"error": "char_name is required"}), 400
-    if not realm_slug:
-        return jsonify({"error": "realm_slug is required"}), 400
-    if not isinstance(site_team_id, int) or site_team_id <= 0:
-        return jsonify({"error": "site_team_id must be a positive integer"}), 400
-    if difficulty not in {"heroic", "mythic"}:
-        return jsonify({"error": "difficulty must be heroic or mythic"}), 400
-    if mode not in {"site", "addon"}:
-        return jsonify({"error": "mode must be site or addon"}), 400
-    if mode == "addon" and not addon_export:
-        return jsonify({"error": "addon_export is required when mode is addon"}), 400
-    if sim_raid not in {"all", "voidspire", "dreamrift", "queldanas"}:
-        sim_raid = "all"
-    if sim_difficulty not in {"all", "heroic", "mythic"}:
-        sim_difficulty = "all"
-
-    base_url = _site_base_url()
-    runner_key = _runner_key()
-    if not base_url or not runner_key:
-        return jsonify({"error": "SIM_SITE_BASE_URL_DEV and SIM_RUNNER_KEY_DEV must be set in .env.simrunner.local"}), 503
-
-    config_name = _website_config(difficulty)
-    if not (WOWSIM_ROOT / config_name).exists():
-        return jsonify({"error": f"Config file not found: {config_name}"}), 503
-
-    addon_profile_path: str | None = None
-    if mode == "addon":
-        # Write addon export to a temp file
-        try:
-            fd, addon_profile_path = tempfile.mkstemp(suffix=".txt", prefix="addon_", text=True)
-            try:
-                os.write(fd, addon_export.encode("utf-8"))
-            finally:
-                os.close(fd)
-        except Exception as e:
-            return jsonify({"error": f"Failed to write addon profile: {str(e)}"}), 500
-
-    mode_args: list[str]
-    if mode == "addon":
-        # Guaranteed by validation and temp file creation above.
-        mode_args = ["--mode", "addon", "--addon-profile", addon_profile_path or ""]
-    else:
-        mode_args = ["--mode", "site"]
-
-    cmd = _build_runner_command(
-        "--config", config_name,
-        "--site-base-url", base_url,
-        "--runner-key", runner_key,
-        "--character-name", char_name,
-        "--team-id", str(site_team_id),
-        "--sim-raid", sim_raid,
-        "--sim-difficulty", sim_difficulty,
-        *mode_args,
-    )
-
-    job_id = uuid.uuid4().hex
-    job = JobState(
-        id=job_id,
-        command=cmd,
-        status="queued",
-        started_at=dt.datetime.now().isoformat(timespec="seconds"),
-        addon_profile_path=addon_profile_path,
-        priority=100,
-        queue_seq=_next_queue_seq(),
-        source="manual-website",
-    )
-    with job_cond:
-        jobs[job_id] = job
-        job_cond.notify_all()
-
-    _ensure_worker_started()
-
-    return jsonify({"job_id": job_id})
+    return jsonify({
+        "error": "Manual website launches are removed. This runner only processes passive tasks.",
+    }), 410
 
 
 @app.get("/api/configs")
@@ -1794,24 +1631,9 @@ def api_job_stop(job_id: str) -> Any:
 
 @app.post("/api/jobs/<job_id>/run-now")
 def api_job_run_now(job_id: str) -> Any:
-    with job_cond:
-        job = jobs.get(job_id)
-        if not job:
-            return jsonify({"error": "job not found"}), 404
-
-        if job.status != "queued":
-            return jsonify({"error": "only queued jobs can be moved"}), 400
-
-        min_seq = min((j.queue_seq for j in jobs.values() if j.status == "queued"), default=job.queue_seq)
-        job.queue_seq = min_seq - 1
-        job.priority = max(job.priority, 1000)
-        _append_log(job, "Moved to front of queue.")
-        job_cond.notify_all()
-
-        queue_positions = {queued.id: idx + 1 for idx, queued in enumerate(_queued_jobs_sorted_locked())}
-        payload = _serialize_job(job)
-        payload["queue_position"] = queue_positions.get(job.id)
-        return jsonify({"job": payload, "message": "moved to front"})
+    return jsonify({
+        "error": "Run-now queue promotion is removed. Passive scheduler controls run order.",
+    }), 410
 
 
 @app.post("/api/jobs/clear")

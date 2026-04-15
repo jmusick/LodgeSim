@@ -1,5 +1,5 @@
 {
-  "simc_path": "C:/Users/JD/source/LodgeSim/tools/simc/nightly/current/simc.exe",
+  "simc_path": "C:\\Users\\JD\\source\\LodgeSim\\tools\\simc\\nightly\\current\\simc.exe",
   "base_profile_path": "C:/Users/JD/source/LodgeSim/input/character.simc",
   "candidates_path": "C:\\Users\\JD\\source\\LodgeSim\\generated\\live-candidates\\candidates.hunter-survival.all-raids-normal-hc-mythic.live.json",
   "raiders_path": null,

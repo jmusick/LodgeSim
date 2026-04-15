@@ -212,7 +212,6 @@ class RunnerGui(tk.Tk):
         self.queue_selection = tk.StringVar(value="")
         self.queue_count = tk.StringVar(value="Queued: 0")
         self._queue_combo: ttk.Combobox | None = None
-        self._run_now_btn: ttk.Button | None = None
         self._queue_label_to_id: dict[str, str] = {}
 
         # Track job logs to avoid re-displaying the same lines
@@ -416,11 +415,7 @@ class RunnerGui(tk.Tk):
             state="readonly",
             values=[],
         )
-        self._queue_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, self._pad_sm))
-
-        self._run_now_btn = ttk.Button(queue_row, text="Run Now", command=self._run_selected_now)
-        self._run_now_btn.pack(side=tk.LEFT)
-        self._run_now_btn.configure(state=tk.DISABLED)
+        self._queue_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
         passive_row_1 = ttk.Frame(queue_frame)
         passive_row_1.pack(fill=tk.X, pady=(self._pad_sm, 2))
@@ -550,28 +545,7 @@ class RunnerGui(tk.Tk):
         if current not in mapping:
             self.queue_selection.set(labels[0] if labels else "")
 
-        if self._run_now_btn is not None:
-            self._run_now_btn.configure(state=tk.NORMAL if labels else tk.DISABLED)
-
-    def _run_selected_now(self) -> None:
-        selected = self.queue_selection.get().strip()
-        job_id = self._queue_label_to_id.get(selected)
-        if not job_id:
-            return
-
-        try:
-            req = urllib.request.Request(
-                f"http://127.0.0.1:5050/api/jobs/{job_id}/run-now",
-                headers={"Accept": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-                data = json.loads(raw) if raw.strip() else {}
-                self._queue.put(f"[queue] promoted {job_id[:8]} to the front\n")
-                _ = data
-        except Exception as exc:
-            self._queue.put(f"[queue] failed to promote {job_id[:8]}: {exc}\n")
+        # Queue ordering is controlled by passive scheduler only.
 
     def _refresh_run_button_state(self) -> None:
         if self._simc_check_btn is not None:
