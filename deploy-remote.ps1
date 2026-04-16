@@ -132,7 +132,9 @@ if ($configJson.PSObject.Properties.Name -contains "candidates_by_spec" -and $nu
 }
 
 $targetConfigPath = Join-Path $TargetRoot $ConfigName
-($configJson | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $targetConfigPath -Encoding UTF8
+$jsonOutput = $configJson | ConvertTo-Json -Depth 20
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($targetConfigPath, $jsonOutput, $utf8NoBom)
 Write-Host "Wrote config -> $targetConfigPath"
 
 # Optional data files expected by config.

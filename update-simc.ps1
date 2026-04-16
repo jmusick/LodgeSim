@@ -74,7 +74,9 @@ function Update-ConfigSimcPath {
     try {
       $config = Get-Content -Path $cfgPath -Raw | ConvertFrom-Json
       $config.simc_path = $SimcPath
-      $config | ConvertTo-Json -Depth 8 | Set-Content -Path $cfgPath -Encoding UTF8
+      $jsonOutput = $config | ConvertTo-Json -Depth 8
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::WriteAllText($cfgPath, $jsonOutput, $utf8NoBom)
       Write-Host "Updated $cfg simc_path -> $SimcPath"
     } catch {
       Write-Warning "$cfg exists but could not be updated automatically: $($_.Exception.Message)"

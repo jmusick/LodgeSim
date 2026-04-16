@@ -266,6 +266,11 @@ class RunnerGui(tk.Tk):
         )
 
         style.configure("TRadiobutton", background=self._c_bg_soft, foreground=self._c_text)
+        style.map(
+            "TRadiobutton",
+            background=[("active", self._c_bg_soft), ("selected", self._c_bg_soft)],
+            foreground=[("active", self._c_text), ("selected", self._c_gold_bright)],
+        )
 
         style.configure(
             "TEntry",

@@ -225,7 +225,8 @@ class RaiderSummary:
 
 
 def load_json(path: pathlib.Path) -> Any:
-    with path.open("r", encoding="utf-8") as handle:
+    # Accept both plain UTF-8 and UTF-8 with BOM (common from PowerShell writes).
+    with path.open("r", encoding="utf-8-sig") as handle:
         return json.load(handle)
 
 
